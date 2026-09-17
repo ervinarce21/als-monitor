@@ -26,6 +26,26 @@ cd ~/als-monitor
 
 Run all commands below from this directory.
 
+## Install the launcher
+
+Run this once using the project's location on the Raspberry Pi:
+
+```bash
+bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-launcher.sh"
+```
+
+After installation, start any service from any directory:
+
+```bash
+als-monitor eye
+als-monitor preview
+als-monitor grip
+als-monitor shoulder
+```
+
+Run `als-monitor` without an option to use an interactive menu. The launcher
+automatically finds the project, changes directory, and sets `PYTHONPATH`.
+
 ## Eye tracker
 
 Check the camera first:

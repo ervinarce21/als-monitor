@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Resolve the real script location so this also works through a symlink in
+# /usr/local/bin.
+SCRIPT_PATH="$(readlink -f -- "$0")"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+
+export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+cd "$PROJECT_ROOT"
+
+show_help() {
+    cat <<'EOF'
+Usage: als-monitor SERVICE
+
+Services:
+  eye       Run the eye-tracking test
+  preview   Run the eye-camera preview
+  grip      Run the load-cell grip monitor
+  shoulder  Run the shoulder-angle monitor
+  help      Show this help
+
+Run without a service to open the interactive menu.
+EOF
+}
+
+choose_service() {
+    echo "ALS Monitor"
+    echo "1) Eye tracker"
+    echo "2) Eye-camera preview"
+    echo "3) Grip monitor"
+    echo "4) Shoulder monitor"
+    echo "5) Exit"
+    read -r -p "Select a service [1-5]: " choice
+
+    case "$choice" in
+        1) selected_service="eye" ;;
+        2) selected_service="preview" ;;
+        3) selected_service="grip" ;;
+        4) selected_service="shoulder" ;;
+        5) exit 0 ;;
+        *) echo "Invalid selection." >&2; exit 2 ;;
+    esac
+}
+
+service="${1:-}"
+if [[ -z "$service" ]]; then
+    selected_service=""
+    choose_service
+    service="$selected_service"
+fi
+
+case "$service" in
+    eye|eye-tracker)
+        exec python3 -m als_monitor.eye_tracker
+        ;;
+    preview|eye-preview)
+        exec python3 -m als_monitor.eye_tracker.preview
+        ;;
+    grip|grip-monitor)
+        exec python3 -m als_monitor.grip_monitor
+        ;;
+    shoulder|shoulder-monitor)
+        exec python3 -m als_monitor.shoulder_monitor
+        ;;
+    help|-h|--help)
+        show_help
+        ;;
+    *)
+        echo "Unknown service: $service" >&2
+        show_help >&2
+        exit 2
+        ;;
+esac
