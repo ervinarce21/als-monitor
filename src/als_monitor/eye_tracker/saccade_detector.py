@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import config
+from . import config
 
 
 @dataclass

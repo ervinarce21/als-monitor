@@ -17,7 +17,7 @@ except Exception as exc:          # pragma: no cover - depends on host
     PICAMERA2_AVAILABLE = False
     _PICAMERA2_IMPORT_ERROR = exc
 
-import config
+from . import config
 
 
 class CameraError(RuntimeError):

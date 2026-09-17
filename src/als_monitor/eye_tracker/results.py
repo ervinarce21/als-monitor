@@ -11,7 +11,7 @@ import statistics
 from dataclasses import dataclass, field
 from datetime import datetime
 
-import config
+from . import config
 
 
 @dataclass

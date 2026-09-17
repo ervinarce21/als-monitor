@@ -13,9 +13,9 @@ import time
 
 import cv2
 
-import config
-from camera import CameraError, IRCamera
-from pupil_tracker import PupilTracker
+from . import config
+from .camera import CameraError, IRCamera
+from .pupil_tracker import PupilTracker
 
 
 def main():

@@ -12,9 +12,9 @@ import time
 import numpy as np
 import pygame
 
-import config
-from results import TrialResult
-from saccade_detector import detect_saccade
+from . import config
+from .results import TrialResult
+from .saccade_detector import detect_saccade
 
 
 class AbortTest(Exception):

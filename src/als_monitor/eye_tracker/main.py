@@ -12,11 +12,11 @@ descriptive statistics; it does not classify, score or diagnose anything.
 import sys
 import traceback
 
-import config
-import results as results_mod
-from camera import CameraError
-from prosaccade_test import AbortTest, ProsaccadeTest
-from sampler import EyeSampler
+from . import config
+from . import results as results_mod
+from .camera import CameraError
+from .prosaccade_test import AbortTest, ProsaccadeTest
+from .sampler import EyeSampler
 
 
 def main():

@@ -8,8 +8,8 @@ presentation timing is not delayed by image processing.
 import threading
 from collections import deque
 
-from camera import CameraError, IRCamera
-from pupil_tracker import PupilTracker
+from .camera import CameraError, IRCamera
+from .pupil_tracker import PupilTracker
 
 
 class EyeSampler:
