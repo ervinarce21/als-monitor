@@ -15,9 +15,15 @@ WINDOW_SECONDS = 10.0
 Y_LIMITS = (-500000, 500000)
 
 
-def read_serial_data(timestamps, left_data, right_data, maximums, data_lock,
+def format_duration(seconds):
+    """Format elapsed seconds as MM:SS.s."""
+    minutes, remaining = divmod(max(0.0, seconds), 60.0)
+    return "%02d:%04.1f" % (int(minutes), remaining)
+
+
+def read_serial_data(timestamps, left_data, right_data, session, data_lock,
                      stop_event):
-    """Read `left_grip,right_grip` records until the UI closes."""
+    """Read `right_grip,left_grip` records until the UI closes."""
     try:
         with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as connection:
             print("Connected to ESP32 on %s" % SERIAL_PORT)
@@ -27,21 +33,23 @@ def read_serial_data(timestamps, left_data, right_data, maximums, data_lock,
                 if not line:
                     continue
                 try:
-                    left_value, right_value = map(float, line.split(","))
+                    right_value, left_value = map(float, line.split(","))
                 except ValueError:
                     continue
 
                 current_time = time.time()
                 with data_lock:
+                    if session["started_at"] is None:
+                        session["started_at"] = time.monotonic()
                     timestamps.append(current_time)
                     left_data.append(left_value)
                     right_data.append(right_value)
-                    if (maximums["left"] is None or
-                            left_value > maximums["left"]):
-                        maximums["left"] = left_value
-                    if (maximums["right"] is None or
-                            right_value > maximums["right"]):
-                        maximums["right"] = right_value
+                    if (session["left_max"] is None or
+                            left_value > session["left_max"]):
+                        session["left_max"] = left_value
+                    if (session["right_max"] is None or
+                            right_value > session["right_max"]):
+                        session["right_max"] = right_value
 
                     while (timestamps and
                            current_time - timestamps[0] > WINDOW_SECONDS):
@@ -56,13 +64,13 @@ def main():
     timestamps = collections.deque()
     left_data = collections.deque()
     right_data = collections.deque()
-    maximums = {"left": None, "right": None}
+    session = {"left_max": None, "right_max": None, "started_at": None}
     data_lock = threading.Lock()
     stop_event = threading.Event()
 
     reader = threading.Thread(
         target=read_serial_data,
-        args=(timestamps, left_data, right_data, maximums, data_lock,
+        args=(timestamps, left_data, right_data, session, data_lock,
               stop_event),
         daemon=True,
     )
@@ -79,6 +87,9 @@ def main():
     right_max_text = axes.text(
         0.98, 0.90, "Right max: -- N", color="darkorange",
         ha="right", va="top", transform=axes.transAxes)
+    duration_text = axes.text(
+        0.98, 0.84, "Duration: 00:00.0", color="black",
+        ha="right", va="top", transform=axes.transAxes)
     axes.set_xlim(-WINDOW_SECONDS, 0)
     axes.set_ylim(*Y_LIMITS)
     axes.set_autoscaley_on(False)
@@ -93,8 +104,9 @@ def main():
             time_snapshot = list(timestamps)
             left_snapshot = list(left_data)
             right_snapshot = list(right_data)
-            left_maximum = maximums["left"]
-            right_maximum = maximums["right"]
+            left_maximum = session["left_max"]
+            right_maximum = session["right_max"]
+            started_at = session["started_at"]
 
         if time_snapshot:
             now = time.time()
@@ -105,7 +117,11 @@ def main():
             left_max_text.set_text("Left max: %.2f N" % left_maximum)
         if right_maximum is not None:
             right_max_text.set_text("Right max: %.2f N" % right_maximum)
-        return left_line, right_line, left_max_text, right_max_text
+        if started_at is not None:
+            duration_text.set_text(
+                "Duration: %s" % format_duration(time.monotonic() - started_at))
+        return (left_line, right_line, left_max_text, right_max_text,
+                duration_text)
 
     graph_animation = animation.FuncAnimation(
         figure, update, interval=50, blit=False, cache_frame_data=False)
@@ -117,10 +133,13 @@ def main():
     finally:
         stop_event.set()
         reader.join(timeout=1.0)
-        if maximums["left"] is not None:
-            print("Left maximum grip: %.2f N" % maximums["left"])
-        if maximums["right"] is not None:
-            print("Right maximum grip: %.2f N" % maximums["right"])
+        if session["left_max"] is not None:
+            print("Left maximum grip: %.2f N" % session["left_max"])
+        if session["right_max"] is not None:
+            print("Right maximum grip: %.2f N" % session["right_max"])
+        if session["started_at"] is not None:
+            elapsed = time.monotonic() - session["started_at"]
+            print("Session duration: %s" % format_duration(elapsed))
     return 0
 
 

@@ -105,7 +105,7 @@ Start the grip graph:
 PYTHONPATH=src python3 -m als_monitor.grip_monitor
 ```
 
-The ESP32 must send two comma-separated readings per line:
+The ESP32 must send right, then left, as two comma-separated readings:
 
 ```text
 124.8,118.3
