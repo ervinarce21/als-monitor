@@ -18,7 +18,7 @@ import serial
 SERIAL_PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 WINDOW_SECONDS = 10.0
-Y_LIMITS = (-500000, 500000)
+INITIAL_Y_LIMITS = (-10.0, 10.0)
 
 
 def format_duration(seconds):
@@ -33,6 +33,8 @@ def read_serial_data(timestamps, left_data, right_data, session, data_lock,
     try:
         with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as connection:
             print("Connected to ESP32 on %s" % SERIAL_PORT)
+            with data_lock:
+                session["status"] = "Connected - waiting for readings"
             while not stop_event.is_set():
                 line = connection.readline().decode(
                     "utf-8", errors="ignore").strip()
@@ -45,6 +47,7 @@ def read_serial_data(timestamps, left_data, right_data, session, data_lock,
 
                 current_time = time.time()
                 with data_lock:
+                    session["status"] = "Receiving data"
                     if session["started_at"] is None:
                         session["started_at"] = time.monotonic()
                     timestamps.append(current_time)
@@ -63,6 +66,8 @@ def read_serial_data(timestamps, left_data, right_data, session, data_lock,
                         left_data.popleft()
                         right_data.popleft()
     except (OSError, serial.SerialException) as exc:
+        with data_lock:
+            session["status"] = "Serial error: %s" % exc
         print("Serial connection error: %s" % exc)
 
 
@@ -70,7 +75,12 @@ def main():
     timestamps = collections.deque()
     left_data = collections.deque()
     right_data = collections.deque()
-    session = {"left_max": None, "right_max": None, "started_at": None}
+    session = {
+        "left_max": None,
+        "right_max": None,
+        "started_at": None,
+        "status": "Opening %s..." % SERIAL_PORT,
+    }
     data_lock = threading.Lock()
     stop_event = threading.Event()
 
@@ -96,8 +106,11 @@ def main():
     duration_text = axes.text(
         0.98, 0.84, "Duration: 00:00.0", color="black",
         ha="right", va="top", transform=axes.transAxes)
+    status_text = axes.text(
+        0.02, 0.04, session["status"], color="dimgray",
+        ha="left", va="bottom", transform=axes.transAxes)
     axes.set_xlim(-WINDOW_SECONDS, 0)
-    axes.set_ylim(*Y_LIMITS)
+    axes.set_ylim(*INITIAL_Y_LIMITS)
     axes.set_autoscaley_on(False)
     axes.set_autoscalex_on(False)
     axes.legend(loc="upper left")
@@ -113,12 +126,21 @@ def main():
             left_maximum = session["left_max"]
             right_maximum = session["right_max"]
             started_at = session["started_at"]
+            serial_status = session["status"]
 
         if time_snapshot:
             now = time.time()
             relative_time = [timestamp - now for timestamp in time_snapshot]
             left_line.set_data(relative_time, left_snapshot)
             right_line.set_data(relative_time, right_snapshot)
+
+            visible_values = left_snapshot + right_snapshot
+            low = min(visible_values)
+            high = max(visible_values)
+            span = high - low
+            padding = max(span * 0.15, max(abs(low), abs(high)) * 0.05, 1.0)
+            axes.set_ylim(min(0.0, low - padding),
+                          max(0.0, high + padding))
         if left_maximum is not None:
             left_max_text.set_text("Left max: %.2f N" % left_maximum)
         if right_maximum is not None:
@@ -126,8 +148,12 @@ def main():
         if started_at is not None:
             duration_text.set_text(
                 "Duration: %s" % format_duration(time.monotonic() - started_at))
+        status_text.set_text(serial_status)
+        status_text.set_color(
+            "firebrick" if serial_status.startswith("Serial error")
+            else "dimgray")
         return (left_line, right_line, left_max_text, right_max_text,
-                duration_text)
+                duration_text, status_text)
 
     graph_animation = animation.FuncAnimation(
         figure, update, interval=50, blit=False, cache_frame_data=False)
