@@ -1,0 +1,289 @@
+"""
+NEXA UI - Modality registry
+
+Declarative description of each assessment modality: how to launch the
+EXISTING modality program, what the operator must set up, what the patient
+is told to do, and how to read the result files that program writes.
+
+Adding or re-pointing a modality is a data change here -- no UI code changes,
+and no changes to the modality algorithms themselves.
+"""
+
+import csv
+import json
+import math
+import os
+import statistics
+
+import config
+
+
+# ---------------------------------------------------------------------------
+# Metric aggregation helpers
+# ---------------------------------------------------------------------------
+
+def _numeric_column(rows, column, valid_column=None):
+    """Extract a numeric column, optionally filtered by a validity flag column."""
+    values = []
+    for row in rows:
+        if valid_column is not None:
+            flag = str(row.get(valid_column, "")).strip()
+            if flag not in ("1", "true", "True", "TRUE"):
+                continue
+        raw = str(row.get(column, "")).strip()
+        if raw == "" or raw.lower() in ("nan", "none", "null"):
+            continue
+        try:
+            values.append(float(raw))
+        except ValueError:
+            continue
+    return values
+
+
+AGGREGATORS = {
+    "mean":  lambda v: statistics.mean(v) if v else None,
+    "sd":    lambda v: statistics.stdev(v) if len(v) >= 2 else None,
+    "cv":    lambda v: ((statistics.stdev(v) / statistics.mean(v)) * 100.0
+                        if len(v) >= 2 and statistics.mean(v) else None),
+    "min":   lambda v: min(v) if v else None,
+    "max":   lambda v: max(v) if v else None,
+    "count": lambda v: float(len(v)),
+    "sum":   lambda v: float(sum(v)) if v else None,
+    "last":  lambda v: v[-1] if v else None,
+}
+
+
+class Metric:
+    """One summary number extracted from a modality's output file."""
+
+    def __init__(self, key, label, column, agg, unit="", precision=1,
+                 valid_column=None):
+        self.key = key
+        self.label = label
+        self.column = column
+        self.agg = agg
+        self.unit = unit
+        self.precision = precision
+        self.valid_column = valid_column
+
+    def compute(self, rows):
+        values = _numeric_column(rows, self.column, self.valid_column)
+        fn = AGGREGATORS.get(self.agg)
+        if fn is None:
+            return None
+        try:
+            return fn(values)
+        except statistics.StatisticsError:
+            return None
+
+    def format(self, value):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return "—"
+        text = f"{value:.{self.precision}f}"
+        return f"{text} {self.unit}".strip()
+
+
+class Modality:
+    def __init__(self, key, name, subtitle, output_files, metrics,
+                 operator_checklist, patient_instruction, patient_detail="",
+                 args=None, est_duration_s=60):
+        self.key = key
+        self.name = name
+        self.subtitle = subtitle
+        self.output_files = output_files      # filenames the existing script writes
+        self.metrics = metrics
+        self.operator_checklist = operator_checklist
+        self.patient_instruction = patient_instruction
+        self.patient_detail = patient_detail
+        self.args = args or []
+        self.est_duration_s = est_duration_s
+
+    # -- launching -------------------------------------------------------
+
+    @property
+    def script_path(self):
+        return config.MODALITY_PATHS.get(self.key, "")
+
+    @property
+    def working_dir(self):
+        p = self.script_path
+        return os.path.dirname(p) if p else config.NEXA_ROOT
+
+    def is_available(self):
+        p = self.script_path
+        return bool(p) and os.path.isfile(p)
+
+    def build_command(self):
+        """Command list to hand to QProcess. The existing script is run as-is."""
+        return [config.PYTHON_BIN, self.script_path] + list(self.args)
+
+    # -- result reading -------------------------------------------------------
+
+    def collect_output_files(self):
+        """Absolute paths of result files that actually exist after a run."""
+        found = []
+        for fname in self.output_files:
+            candidate = os.path.join(self.working_dir, fname)
+            if os.path.isfile(candidate):
+                found.append(candidate)
+        return found
+
+    def parse_metrics(self, output_paths):
+        """
+        Read the modality's own output files and compute the declared summary
+        metrics. Prefers a JSON sidecar if the script wrote one; otherwise
+        aggregates the CSV.
+        """
+        rows = []
+        direct = {}
+
+        for path in output_paths:
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext == ".json":
+                    with open(path, "r") as f:
+                        payload = json.load(f)
+                    if isinstance(payload, dict):
+                        direct.update(payload)
+                elif ext == ".csv":
+                    with open(path, "r", newline="") as f:
+                        rows.extend(list(csv.DictReader(f)))
+            except (OSError, json.JSONDecodeError, csv.Error):
+                continue
+
+        metrics = {}
+        for metric in self.metrics:
+            if metric.key in direct:
+                try:
+                    metrics[metric.key] = float(direct[metric.key])
+                except (TypeError, ValueError):
+                    metrics[metric.key] = None
+            else:
+                metrics[metric.key] = metric.compute(rows)
+        return metrics
+
+    def format_metrics(self, metrics):
+        """Returns list of (label, formatted_value) for display."""
+        out = []
+        for metric in self.metrics:
+            out.append((metric.label, metric.format(metrics.get(metric.key))))
+        return out
+
+
+# ---------------------------------------------------------------------------
+# REGISTRY
+#
+# Adjust output_files / metric column names here to match what each of your
+# existing modality scripts actually writes.
+# ---------------------------------------------------------------------------
+
+GRIP = Modality(
+    key="grip",
+    name="Grip Strength",
+    subtitle="Dual load cell — maximal force and short-duration grip-force consistency",
+    output_files=["grip_results.csv", "grip_summary.json"],
+    metrics=[
+        Metric("peak_left",  "Peak force (L)", "peak_force_left_kg", "max", "kg", 2),
+        Metric("peak_right", "Peak force (R)", "peak_force_right_kg", "max", "kg", 2),
+        Metric("mean_left",  "Mean force (L)", "mean_force_left_kg", "mean", "kg", 2),
+        Metric("mean_right", "Mean force (R)", "mean_force_right_kg", "mean", "kg", 2),
+        Metric("trials",     "Trials recorded", "trial", "count", "", 0),
+    ],
+    operator_checklist=[
+        "Arduino Uno connected and enumerated (see System Check).",
+        "Both load cells zeroed/tared with no load applied.",
+        "Participant seated, elbow at ~90°, forearm supported, wrist neutral.",
+        "Dynamometer handle adjusted to hand size.",
+    ],
+    patient_instruction="Squeeze as hard as you can",
+    patient_detail=(
+        "When told to start, squeeze the handle as hard as you can and hold it "
+        "steady until you are told to stop. Keep your arm still."
+    ),
+    est_duration_s=120,
+)
+
+OCULOMOTOR = Modality(
+    key="oculomotor",
+    name="Oculomotor",
+    subtitle="Visually guided prosaccade latency (OV9281 IR camera)",
+    output_files=["nexa_prosaccade_results.csv"],
+    metrics=[
+        Metric("valid_trials", "Valid trials", "valid", "sum", "", 0),
+        Metric("mean_latency", "Mean latency", "prosaccade_latency_ms", "mean",
+               "ms", 1, valid_column="valid"),
+        Metric("sd_latency", "SD", "prosaccade_latency_ms", "sd",
+               "ms", 1, valid_column="valid"),
+        Metric("cv_latency", "CV", "prosaccade_latency_ms", "cv",
+               "%", 1, valid_column="valid"),
+    ],
+    operator_checklist=[
+        "OV9281 camera aimed at the tracked eye; pupil clearly visible in frame.",
+        "IR illumination stable; no direct sunlight or flickering light source.",
+        "Head position stable (chin rest or headrest) at the intended viewing distance.",
+        "Room lighting will stay constant for the whole run.",
+    ],
+    patient_instruction="Look at the dot in the centre, then at the new dot",
+    patient_detail=(
+        "Keep your eyes on the centre dot. When a new dot appears to the side, "
+        "look at it as quickly as you can. Then return to the centre dot."
+    ),
+    est_duration_s=60,
+)
+
+MOTOR = Modality(
+    key="motor",
+    name="Motor / Movement",
+    subtitle="Camera-based movement analysis (USB webcam)",
+    output_files=["motor_results.csv", "motor_summary.json"],
+    metrics=[
+        Metric("repetitions", "Repetitions", "repetition", "count", "", 0),
+        Metric("mean_cycle", "Mean cycle time", "cycle_time_ms", "mean", "ms", 1),
+        Metric("sd_cycle", "SD cycle time", "cycle_time_ms", "sd", "ms", 1),
+        Metric("cv_cycle", "CV", "cycle_time_ms", "cv", "%", 1),
+    ],
+    operator_checklist=[
+        "USB webcam connected and framing the full movement.",
+        "Participant's limb fully inside frame throughout the movement range.",
+        "Background uncluttered; consistent lighting.",
+        "Task demonstrated to the participant once before recording.",
+    ],
+    patient_instruction="Repeat the movement as quickly and evenly as you can",
+    patient_detail=(
+        "Perform the movement you were just shown. Keep going at a steady, quick "
+        "pace until you are told to stop."
+    ),
+    est_duration_s=90,
+)
+
+SPEECH = Modality(
+    key="speech",
+    name="Speech",
+    subtitle="Microphone-based speech analysis (USB conference mic)",
+    output_files=["speech_results.csv", "speech_summary.json"],
+    metrics=[
+        Metric("duration", "Recording length", "duration_s", "last", "s", 1),
+        Metric("syllable_rate", "Syllable rate", "syllables_per_s", "mean", "/s", 2),
+        Metric("mean_intensity", "Mean intensity", "mean_intensity_db", "mean", "dB", 1),
+        Metric("pause_ratio", "Pause ratio", "pause_ratio", "mean", "", 3),
+    ],
+    operator_checklist=[
+        "USB microphone connected and selected as the input device.",
+        "Mic positioned at a consistent distance from the participant.",
+        "Room quiet; fans, aircon, and other devices accounted for.",
+        "Participant has heard the task instruction and confirmed understanding.",
+    ],
+    patient_instruction="Speak when the recording starts",
+    patient_detail=(
+        "Follow the spoken task instruction. Speak clearly at a comfortable "
+        "volume and keep going until you are told to stop."
+    ),
+    est_duration_s=60,
+)
+
+REGISTRY = [GRIP, OCULOMOTOR, MOTOR, SPEECH]
+BY_KEY = {m.key: m for m in REGISTRY}
+
+
+def get(key):
+    return BY_KEY.get(key)
