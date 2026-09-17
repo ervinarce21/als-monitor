@@ -1,0 +1,46 @@
+# Python bytecode and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config/*.local.*
+*.pem
+*.key
+
+# Runtime data and databases
+*.db
+*.db-shm
+*.db-wal
+data/*
+!data/.gitkeep
+
+# Logs and captures
+*.log
+captures/
+recordings/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
