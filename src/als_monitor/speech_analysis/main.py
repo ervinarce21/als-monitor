@@ -2,10 +2,9 @@
 """
 NEXA speech-analysis module - command-line entry point.
 
-STEP 1 status: project skeleton + database schema. Only list-microphones
-is functional here (it needs no other module). Every other command is
-wired into argparse now and will be implemented in its corresponding step,
-so the CLI shape does not change later.
+The interactive menu exposes the currently functional microphone discovery
+and database setup actions. Planned analysis commands remain available through
+argparse and clearly report that they are not implemented yet.
 """
 
 import argparse
@@ -85,6 +84,52 @@ def _not_yet_implemented(command_name, step):
     return handler
 
 
+def run_interactive_menu(parser):
+    """Run functional speech actions until the user chooses to exit."""
+    actions = {
+        "1": ("List microphones", cmd_list_microphones),
+        "2": ("Initialize database", cmd_init_db),
+    }
+
+    while True:
+        print("\nNEXA Speech Analysis")
+        print("1) List microphones")
+        print("2) Initialize database")
+        print("3) Show all commands")
+        print("4) Exit")
+
+        try:
+            choice = input("Select an action [1-4]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting speech analysis.")
+            return 0
+
+        if choice == "4":
+            print("Exiting speech analysis.")
+            return 0
+        if choice == "3":
+            print()
+            parser.print_help()
+            continue
+        if choice not in actions:
+            print("Invalid selection. Choose 1, 2, 3, or 4.")
+            continue
+
+        label, action = actions[choice]
+        print("\n--- %s ---" % label)
+        result = action(None)
+        if result == 0:
+            print("Action completed successfully.")
+        else:
+            print("Action failed. Review the message above.")
+
+        try:
+            input("\nPress Enter to return to the speech menu...")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return result
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="als-monitor speech",
@@ -140,10 +185,12 @@ def build_parser():
     return parser
 
 
-def main():
+def main(argv=None):
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not getattr(args, "command", None):
+        if sys.stdin.isatty():
+            return run_interactive_menu(parser)
         parser.print_help()
         return 0
     return args.func(args)

@@ -133,6 +133,15 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 
 ## Speech analysis
 
+Open the interactive speech menu:
+
+```bash
+als-monitor speech
+```
+
+The menu lets you list microphones, initialize the database, show all speech
+commands, or exit.
+
 List available microphones:
 
 ```bash
