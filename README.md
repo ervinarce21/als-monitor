@@ -13,6 +13,7 @@ sudo apt install -y \
   python3-picamera2 \
   python3-opencv \
   python3-numpy \
+  python3-pyqt5 \
   python3-pygame \
   python3-matplotlib \
   python3-serial
@@ -37,6 +38,7 @@ bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-launcher.sh"
 After installation, start any service from any directory:
 
 ```bash
+als-monitor ui
 als-monitor eye
 als-monitor preview
 als-monitor grip

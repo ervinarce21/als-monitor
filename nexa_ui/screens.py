@@ -355,7 +355,7 @@ class SessionScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(grid_host)
-        scroll.setFrameShape(QFrame.NoShape)
+        scroll.setFrameShape(QFrame.NoFrame)
         layout.addWidget(scroll, 1)
 
         notes_frame, notes_layout = card("Session notes")
