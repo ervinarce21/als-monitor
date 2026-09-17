@@ -16,6 +16,7 @@ sudo apt install -y \
   python3-pyqt5 \
   python3-pygame \
   python3-matplotlib \
+  python3-tk \
   python3-sounddevice \
   python3-serial
 ```

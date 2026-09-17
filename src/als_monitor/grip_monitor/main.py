@@ -4,6 +4,12 @@ import collections
 import threading
 import time
 
+import matplotlib
+
+# Use Tk for the standalone graph. The Qt backend requests window activation,
+# which Wayland intentionally does not support and reports as a warning.
+matplotlib.use("TkAgg")
+
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import serial
