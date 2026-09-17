@@ -18,6 +18,8 @@ sudo apt install -y \
   python3-matplotlib \
   python3-tk \
   python3-sounddevice \
+  libportaudio2 \
+  alsa-utils \
   python3-serial
 ```
 
@@ -139,8 +141,9 @@ Open the interactive speech menu:
 als-monitor speech
 ```
 
-The menu lets you list microphones, initialize the database, show all speech
-commands, or exit.
+The menu includes microphone discovery, database setup, recording, all analysis
+commands, stored results, baseline comparison, help, and exit. Analysis stages
+that are still under development report their implementation status.
 
 List available microphones:
 

@@ -8,10 +8,30 @@ argparse and clearly report that they are not implemented yet.
 """
 
 import argparse
+import shutil
 import sqlite3
+import subprocess
 import sys
 
 from . import config
+
+
+def _list_microphones_with_arecord(reason):
+    """Fall back to ALSA device discovery when sounddevice is unavailable."""
+    arecord = shutil.which("arecord")
+    if arecord is None:
+        print("ERROR: sounddevice is not available (%s)." % reason)
+        print("Install audio support with:")
+        print("  sudo apt install python3-sounddevice libportaudio2 alsa-utils")
+        return 1
+
+    print("Python sounddevice is unavailable (%s)." % reason)
+    print("Showing ALSA capture devices instead:\n")
+    result = subprocess.run(
+        [arecord, "-l"], capture_output=True, text=True, check=False)
+    output = (result.stdout or "") + (result.stderr or "")
+    print(output.strip() or "No ALSA capture devices were reported.")
+    return 0 if result.returncode == 0 else 1
 
 
 def cmd_list_microphones(_args):
@@ -19,17 +39,12 @@ def cmd_list_microphones(_args):
     try:
         import sounddevice as sd
     except Exception as exc:
-        print("ERROR: sounddevice is not available (%s). "
-              "Install it with: pip install sounddevice "
-              "(and `sudo apt install libportaudio2` on Raspberry Pi OS)."
-              % exc)
-        return 1
+        return _list_microphones_with_arecord(exc)
 
     try:
         devices = sd.query_devices()
     except Exception as exc:
-        print("ERROR: could not query audio devices: %s" % exc)
-        return 1
+        return _list_microphones_with_arecord(exc)
 
     inputs = [(i, d) for i, d in enumerate(devices) if d["max_input_channels"] > 0]
     if not inputs:
@@ -84,40 +99,112 @@ def _not_yet_implemented(command_name, step):
     return handler
 
 
+def _prompt_command_arguments(command):
+    """Collect arguments needed to dispatch one CLI command."""
+    if command == "record":
+        print("1) Sustained vowel")
+        print("2) Connected speech")
+        task_choice = input("Select task [1-2, blank for default]: ").strip()
+        task = {
+            "1": config.TASK_SUSTAINED_VOWEL,
+            "2": config.TASK_CONNECTED_SPEECH,
+        }.get(task_choice)
+        if task_choice and task is None:
+            print("Invalid task selection.")
+            return None
+
+        duration = input("Duration in seconds [default]: ").strip()
+        output = input("Output WAV path [automatic]: ").strip()
+        arguments = [command]
+        if task:
+            arguments.extend(["--task", task])
+        if duration:
+            arguments.extend(["--duration", duration])
+        if output:
+            arguments.extend(["--out", output])
+        return arguments
+
+    if command in {
+            "analyze", "analyze-speech", "analyze-sustained-vowel",
+            "analyze-reading"}:
+        wav_path = input("WAV file path: ").strip()
+        if not wav_path:
+            print("A WAV file path is required.")
+            return None
+        return [command, wav_path]
+
+    if command == "compare-baseline":
+        participant_id = input("Participant ID: ").strip()
+        session_id = input("Session ID: ").strip()
+        if not participant_id or not session_id:
+            print("Participant ID and session ID are required.")
+            return None
+        return [command, participant_id, session_id]
+
+    return [command]
+
+
 def run_interactive_menu(parser):
-    """Run functional speech actions until the user chooses to exit."""
-    actions = {
-        "1": ("List microphones", cmd_list_microphones),
-        "2": ("Initialize database", cmd_init_db),
+    """Run speech commands until the user chooses to exit."""
+    commands = {
+        "1": ("List microphones", "list-microphones"),
+        "2": ("Initialize database", "init-db"),
+        "3": ("Record WAV", "record"),
+        "4": ("Validate/analyze WAV", "analyze"),
+        "5": ("Analyze connected speech", "analyze-speech"),
+        "6": ("Analyze sustained vowel", "analyze-sustained-vowel"),
+        "7": ("Analyze reading", "analyze-reading"),
+        "8": ("Show stored results", "show-results"),
+        "9": ("Compare session with baseline", "compare-baseline"),
     }
 
     while True:
         print("\nNEXA Speech Analysis")
         print("1) List microphones")
         print("2) Initialize database")
-        print("3) Show all commands")
-        print("4) Exit")
+        print("3) Record WAV")
+        print("4) Validate/analyze WAV")
+        print("5) Analyze connected speech")
+        print("6) Analyze sustained vowel")
+        print("7) Analyze reading")
+        print("8) Show stored results")
+        print("9) Compare session with baseline")
+        print("10) Show command help")
+        print("11) Exit")
 
         try:
-            choice = input("Select an action [1-4]: ").strip()
+            choice = input("Select an action [1-11]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting speech analysis.")
             return 0
 
-        if choice == "4":
+        if choice == "11":
             print("Exiting speech analysis.")
             return 0
-        if choice == "3":
+        if choice == "10":
             print()
             parser.print_help()
             continue
-        if choice not in actions:
-            print("Invalid selection. Choose 1, 2, 3, or 4.")
+        if choice not in commands:
+            print("Invalid selection. Choose a number from 1 to 11.")
             continue
 
-        label, action = actions[choice]
+        label, command = commands[choice]
+        try:
+            command_arguments = _prompt_command_arguments(command)
+        except (EOFError, KeyboardInterrupt):
+            print("\nAction cancelled.")
+            continue
+        if command_arguments is None:
+            continue
+
         print("\n--- %s ---" % label)
-        result = action(None)
+        try:
+            args = parser.parse_args(command_arguments)
+        except SystemExit:
+            print("Action cancelled because an argument was invalid.")
+            continue
+        result = args.func(args)
         if result == 0:
             print("Action completed successfully.")
         else:
