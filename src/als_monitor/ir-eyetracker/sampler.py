@@ -54,8 +54,8 @@ class EyeSampler:
 
             with self._lock:
                 self._samples.append(sample)
-            self.latest_sample = sample
-            self.latest_frame = gray
+                self.latest_sample = sample
+                self.latest_frame = gray
 
     # ------------------------------------------------------------------
     def get_samples(self, t_start, t_end):
@@ -69,6 +69,12 @@ class EyeSampler:
     def clear(self):
         with self._lock:
             self._samples.clear()
+
+    def get_latest_preview(self):
+        """Return a consistent frame/sample snapshot for video feedback."""
+        with self._lock:
+            frame = None if self.latest_frame is None else self.latest_frame.copy()
+            return frame, self.latest_sample
 
     def is_alive(self):
         return self._thread is not None and self._thread.is_alive()

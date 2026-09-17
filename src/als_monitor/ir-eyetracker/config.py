@@ -106,6 +106,10 @@ TARGET_OFFSET_PX = 300           # distance from screen centre to target
 SHOW_TRIAL_NUMBER = True         # small, dim, corner of the screen
 DISPLAY_LATENCY_COMPENSATION_MS = 0.0   # measured panel/render lag, if known
 DEBUG_PREVIEW = False            # show the camera view + pupil marker (setup only)
+VIDEO_FEEDBACK = True            # live camera check before calibration
+VIDEO_FEEDBACK_FPS = 30          # display refresh rate; capture still runs at CAMERA_FPS
+VIDEO_FEEDBACK_MAX_WIDTH = 720
+VIDEO_FEEDBACK_MAX_HEIGHT = 450
 
 # =====================================================================
 # SECTION G - SIGNAL PROCESSING / SACCADE DETECTION

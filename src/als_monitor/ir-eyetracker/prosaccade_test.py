@@ -141,6 +141,79 @@ class ProsaccadeTest:
         if self.sampler.error is not None:
             raise AbortTest("camera failure: %s" % self.sampler.error)
 
+    def run_camera_check(self):
+        """Show an annotated live feed before calibration begins."""
+        if not config.VIDEO_FEEDBACK:
+            return
+
+        clock = pygame.time.Clock()
+        while True:
+            key = self._poll_events()
+            if key == pygame.K_SPACE:
+                return
+            self._check_sampler()
+
+            frame, sample = self.sampler.get_latest_preview()
+            self.screen.fill(config.BACKGROUND_COLOR)
+
+            if frame is None:
+                waiting = self.font.render("Waiting for camera...", True,
+                                           (220, 220, 220))
+                self.screen.blit(waiting, waiting.get_rect(center=self.centre))
+            else:
+                frame_h, frame_w = frame.shape[:2]
+                scale = min(config.VIDEO_FEEDBACK_MAX_WIDTH / frame_w,
+                            config.VIDEO_FEEDBACK_MAX_HEIGHT / frame_h,
+                            1.0)
+                view_w = max(1, int(frame_w * scale))
+                view_h = max(1, int(frame_h * scale))
+
+                # Pygame surfarray expects width x height x channels.
+                rgb = np.repeat(frame[:, :, np.newaxis], 3, axis=2)
+                surface = pygame.surfarray.make_surface(np.swapaxes(rgb, 0, 1))
+                if (view_w, view_h) != (frame_w, frame_h):
+                    surface = pygame.transform.smoothscale(surface,
+                                                           (view_w, view_h))
+
+                view_rect = surface.get_rect(center=(self.centre[0],
+                                                     self.centre[1] - 25))
+                self.screen.blit(surface, view_rect)
+                pygame.draw.rect(self.screen, (100, 100, 100), view_rect, 1)
+
+                found = sample is not None and sample.found and \
+                    not math.isnan(sample.x) and not math.isnan(sample.y)
+                if found:
+                    marker_x = view_rect.left + int(sample.x * scale)
+                    marker_y = view_rect.top + int(sample.y * scale)
+                    marker_r = max(4, int(sample.radius * scale))
+                    pygame.draw.circle(self.screen, (40, 220, 80),
+                                       (marker_x, marker_y), marker_r, 2)
+                    pygame.draw.line(self.screen, (255, 80, 80),
+                                     (marker_x - 8, marker_y),
+                                     (marker_x + 8, marker_y), 1)
+                    pygame.draw.line(self.screen, (255, 80, 80),
+                                     (marker_x, marker_y - 8),
+                                     (marker_x, marker_y + 8), 1)
+                    status = "Pupil detected | confidence %.2f" % sample.confidence
+                    status_colour = (80, 230, 120)
+                else:
+                    status = "Pupil not detected"
+                    status_colour = (240, 130, 100)
+
+                status_surface = self.small_font.render(status, True, status_colour)
+                self.screen.blit(status_surface,
+                                 status_surface.get_rect(center=(self.centre[0],
+                                                                 self.height - 72)))
+
+            help_surface = self.small_font.render(
+                "Camera check - SPACE to calibrate | Q or ESC to exit", True,
+                (210, 210, 210))
+            self.screen.blit(help_surface,
+                             help_surface.get_rect(center=(self.centre[0],
+                                                           self.height - 38)))
+            pygame.display.flip()
+            clock.tick(max(1, int(config.VIDEO_FEEDBACK_FPS)))
+
     # ------------------------------------------------------------------
     # Calibration
     # ------------------------------------------------------------------

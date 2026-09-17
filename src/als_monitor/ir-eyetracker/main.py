@@ -39,6 +39,7 @@ def main():
     try:
         test = ProsaccadeTest(sampler)
         test.init_display()
+        test.run_camera_check()
         test.run_calibration()
         trials = test.run_trials()
     except AbortTest as exc:
