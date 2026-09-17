@@ -46,6 +46,23 @@ als-monitor shoulder
 Run `als-monitor` without an option to use an interactive menu. The launcher
 automatically finds the project, changes directory, and sets `PYTHONPATH`.
 
+## Install desktop buttons
+
+Create clickable buttons for all three services with one command:
+
+```bash
+bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-desktop-shortcuts.sh"
+```
+
+This adds the following buttons to the Raspberry Pi desktop:
+
+- `ALS Eye Tracker`
+- `ALS Grip Monitor`
+- `ALS Shoulder Monitor`
+
+Each button opens a terminal and starts its service. If the desktop asks
+whether to launch the file, select **Execute**.
+
 ## Eye tracker
 
 Check the camera first:
