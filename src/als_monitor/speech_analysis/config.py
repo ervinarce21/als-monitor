@@ -7,27 +7,31 @@ hard-code these values.
 
 ASSUMPTIONS (labelled explicitly, change as needed for your setup):
 - ASSUMPTION: the USB microphone is the default input device on the Pi.
-  Use `python main.py --list-microphones` (added in STEP 2) to confirm and
+  Use `als-monitor speech list-microphones` to confirm and
   set MIC_DEVICE_INDEX below if it is not.
 - ASSUMPTION: 300 ms is used as an initial, configurable research
   parameter for pause detection, NOT a validated clinical cutoff.
 """
 
-import os
+from pathlib import Path
 
 # =====================================================================
 # PROJECT PATHS
 # =====================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
-RESULTS_DIR = os.path.join(BASE_DIR, "results")
-LOGS_DIR = os.path.join(BASE_DIR, "logs")
-PASSAGES_DIR = os.path.join(BASE_DIR, "passages")
-DATABASE_PATH = os.path.join(BASE_DIR, "database", "nexa_speech.db")
-SCHEMA_PATH = os.path.join(BASE_DIR, "database", "schema.sql")
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_DIR.parents[2]
+DATA_DIR = PROJECT_ROOT / "data" / "speech_analysis"
+RECORDINGS_DIR = DATA_DIR / "recordings"
+RESULTS_DIR = DATA_DIR / "results"
+LOGS_DIR = DATA_DIR / "logs"
+PASSAGES_DIR = DATA_DIR / "passages"
+DATABASE_DIR = DATA_DIR / "database"
+DATABASE_PATH = DATABASE_DIR / "nexa_speech.db"
+SCHEMA_PATH = PACKAGE_DIR / "schema.sql"
 
-for _dir in (RECORDINGS_DIR, RESULTS_DIR, LOGS_DIR, PASSAGES_DIR):
-    os.makedirs(_dir, exist_ok=True)
+for _dir in (RECORDINGS_DIR, RESULTS_DIR, LOGS_DIR, PASSAGES_DIR,
+             DATABASE_DIR):
+    _dir.mkdir(parents=True, exist_ok=True)
 
 # =====================================================================
 # AUDIO RECORDING
@@ -54,9 +58,8 @@ TASK_CONNECTED_SPEECH = "connected_speech"
 SUSTAINED_VOWEL_MIN_SECONDS = 2.0    # below this, quality check warns
 SUSTAINED_VOWEL_TARGET_SECONDS = 5.0
 
-DEFAULT_PASSAGE_PATH = os.path.join(PASSAGES_DIR, "rainbow_passage.txt")
-DEFAULT_PASSAGE_METADATA_PATH = os.path.join(
-    PASSAGES_DIR, "rainbow_passage_metadata.json")
+DEFAULT_PASSAGE_PATH = PASSAGES_DIR / "rainbow_passage.txt"
+DEFAULT_PASSAGE_METADATA_PATH = PASSAGES_DIR / "rainbow_passage_metadata.json"
 
 # =====================================================================
 # VOICE ACTIVITY DETECTION / SEGMENTATION  (implemented in STEP 5)

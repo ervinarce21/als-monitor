@@ -16,6 +16,7 @@ sudo apt install -y \
   python3-pyqt5 \
   python3-pygame \
   python3-matplotlib \
+  python3-sounddevice \
   python3-serial
 ```
 
@@ -43,6 +44,7 @@ als-monitor eye
 als-monitor preview
 als-monitor grip
 als-monitor shoulder
+als-monitor speech
 ```
 
 Run `als-monitor` without an option to use an interactive menu. The launcher
@@ -128,13 +130,37 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 - Press `Q` to exit.
 - Results are saved in `nexa_evaluations.db`.
 
+## Speech analysis
+
+List available microphones:
+
+```bash
+als-monitor speech list-microphones
+```
+
+Create the speech-analysis database:
+
+```bash
+als-monitor speech init-db
+```
+
+Show all available speech commands:
+
+```bash
+als-monitor speech --help
+```
+
+The speech module is currently a staged research prototype. Commands marked as
+future steps report that they are not yet implemented.
+
 ## Project structure
 
 ```text
 src/als_monitor/
 |-- eye_tracker/
 |-- grip_monitor/
-`-- shoulder_monitor/
+|-- shoulder_monitor/
+`-- speech_analysis/
 ```
 
 This project is a measurement prototype and is not a diagnostic medical device.

@@ -2,7 +2,7 @@
 """
 NEXA speech-analysis module - command-line entry point.
 
-STEP 1 status: project skeleton + database schema. Only --list-microphones
+STEP 1 status: project skeleton + database schema. Only list-microphones
 is functional here (it needs no other module). Every other command is
 wired into argparse now and will be implemented in its corresponding step,
 so the CLI shape does not change later.
@@ -12,7 +12,7 @@ import argparse
 import sqlite3
 import sys
 
-import config
+from . import config
 
 
 def cmd_list_microphones(_args):
@@ -87,7 +87,7 @@ def _not_yet_implemented(command_name, step):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="main.py",
+        prog="als-monitor speech",
         description="NEXA speech-analysis module (research prototype, "
                      "not a diagnostic device).")
     sub = parser.add_subparsers(dest="command")
