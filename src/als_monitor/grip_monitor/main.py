@@ -38,7 +38,8 @@ def force_newtons(raw_counts, side):
     calibration = CALIBRATION[side]
     scale = (calibration["mass_kg"] * 9.80665 /
              calibration["delta_counts"])
-    return (raw_counts - calibration["zero_counts"]) * scale * calibration["polarity"]
+    force = (raw_counts - calibration["zero_counts"]) * scale * calibration["polarity"]
+    return abs(force)
 
 
 def format_duration(seconds):
@@ -102,7 +103,9 @@ def main():
         try:
             with calibration_path.open(encoding="utf-8") as handle:
                 saved = json.load(handle)
-            for side in ("left", "right"):
+            if not isinstance(saved, dict) or not saved or not set(saved) <= {"left", "right"}:
+                raise ValueError("Expected left and/or right calibration entries")
+            for side in saved:
                 values = saved[side]
                 for key in ("zero_counts", "delta_counts", "mass_kg", "polarity"):
                     if not math.isfinite(float(values[key])):

@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, QProcess, QProcessEnvironment, QTimer
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
     QFrame, QGridLayout, QLineEdit, QMessageBox, QStackedWidget, QWidget,
@@ -251,6 +252,11 @@ class AssessmentRunner(QDialog):
         self.details_btn.setEnabled(False)
         self.details_btn.clicked.connect(self._show_details)
         files_row.addWidget(self.details_btn)
+        self.analysis_btn = QPushButton("Show analysis")
+        self.analysis_btn.setVisible(self.modality.key == "motor")
+        self.analysis_btn.setEnabled(False)
+        self.analysis_btn.clicked.connect(self._show_analysis)
+        files_row.addWidget(self.analysis_btn)
         layout.addLayout(files_row)
 
         layout.addWidget(QLabel("Operator notes (optional)"))
@@ -444,8 +450,32 @@ class AssessmentRunner(QDialog):
                 "filenames match modalities.py."
             )
         self.details_btn.setEnabled(bool(self.metrics))
+        self.analysis_btn.setEnabled(any(
+            os.path.basename(path) == "shoulder_analysis.png" for path in output_paths))
 
         self.stack.setCurrentIndex(PHASE_REVIEW)
+
+    def _show_analysis(self):
+        path = next((path for path in getattr(self, "_pending_output_paths", [])
+                     if os.path.basename(path) == "shoulder_analysis.png"), None)
+        if not path:
+            return
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            QMessageBox.warning(self, "Analysis unavailable", "Could not load the velocity plot.")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Shoulder velocity analysis")
+        layout = QVBoxLayout(dialog)
+        plot = QLabel()
+        plot.setPixmap(pixmap.scaled(config.SCREEN_WIDTH - 80,
+                                    config.SCREEN_HEIGHT - 120,
+                                    Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        layout.addWidget(plot)
+        close = QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close)
+        dialog.exec_()
 
     def _show_details(self):
         """Show every metric returned by the modality analysis."""

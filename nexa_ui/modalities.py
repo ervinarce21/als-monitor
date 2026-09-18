@@ -240,7 +240,7 @@ MOTOR = Modality(
     key="motor",
     name="Motor / Movement",
     subtitle="Camera-based movement analysis (USB webcam)",
-    output_files=["shoulder_summary.json"],
+    output_files=["shoulder_summary.json", "shoulder_velocity.csv", "shoulder_analysis.png"],
     metrics=[
         Metric("peak_velocity", "Peak angular velocity", "peak_velocity", "last", "deg/s", 1),
     ],

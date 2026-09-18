@@ -3,6 +3,30 @@
 Monitoring services for eye tracking, grip force, shoulder movement, and
 speech analysis, with a shared NEXA user interface.
 
+## Shoulder pose setup
+
+The shoulder monitor uses MediaPipe Pose Landmarker to detect anatomical left
+and right shoulders and wrists. Install its Python dependency into the project
+environment and download the model once, from the project root:
+
+```bash
+.venv/bin/python -m pip install mediapipe
+mkdir -p data/models
+curl -fL https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task -o data/models/pose_landmarker_lite.task
+```
+
+MediaPipe wheel availability depends on your Pi OS architecture and Python
+version. If pip reports no matching distribution, that environment needs a
+compatible MediaPipe build before shoulder tracking can run.
+
+Run `nexa shoulder`. Keep one participant's shoulders and wrists in view.
+In the preview, press **L** or **R** to select the participant's arm, then
+**Space** to record a five-second trial. **Q** exits. The preview is mirrored;
+left/right labels remain anatomical. Missing or low-confidence landmarks are
+excluded from velocity samples. The angle is a 2D shoulder-to-wrist elevation
+relative to image vertical, not a 3D joint angle. Prior contour-based results
+are not comparable with the new pose-based measurements.
+
 ## Raspberry Pi setup
 
 From the Raspberry Pi terminal:

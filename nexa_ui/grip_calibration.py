@@ -23,6 +23,7 @@ class GripCalibrationDialog(QDialog):
         self.samples = None
         self.zeros = {}
         self.calibrations = {}
+        self.testing = False
         layout = QVBoxLayout(self)
         instructions = QLabel(
             "Close any running grip assessment. Capture each unloaded sensor, "
@@ -53,7 +54,10 @@ class GripCalibrationDialog(QDialog):
         self.load_btn.clicked.connect(lambda: self.capture(True))
         layout.addWidget(self.zero_btn)
         layout.addWidget(self.load_btn)
-        self.save_btn = QPushButton("Save both calibrations")
+        self.test_btn = QPushButton("Test calibration")
+        self.test_btn.clicked.connect(self.test_calibration)
+        layout.addWidget(self.test_btn)
+        self.save_btn = QPushButton("Save calibrated hands")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save)
         layout.addWidget(self.save_btn)
@@ -65,9 +69,9 @@ class GripCalibrationDialog(QDialog):
         self.timer.timeout.connect(self.poll)
         self.finished.connect(self.cleanup)
 
-    def capture(self, loaded):
+    def capture(self, loaded, testing=False):
         side = self.side.currentText().lower()
-        if loaded and side not in self.zeros:
+        if loaded and not testing and side not in self.zeros:
             self.status.setText("Capture the unloaded sensor first.")
             return
         try:
@@ -79,6 +83,7 @@ class GripCalibrationDialog(QDialog):
             self.status.setText(f"Cannot read grip controller: {exc}")
             return
         self.buffer = b""
+        self.testing = testing
         self.samples = []
         self.capture_side, self.loaded = side, loaded
         self.capture_mass = self.mass.value()
@@ -87,6 +92,8 @@ class GripCalibrationDialog(QDialog):
         self.deadline = self.ready_at + 15
         for widget in (self.side, self.mass, self.zero_btn, self.load_btn, self.save_btn):
             widget.setEnabled(False)
+        self.test_btn.setEnabled(testing)
+        self.test_btn.setText("Stop test" if testing else "Test calibration")
         self.status.setText("Settling sensor...")
         self.timer.start()
 
@@ -96,7 +103,7 @@ class GripCalibrationDialog(QDialog):
             if time.monotonic() < self.ready_at:
                 return
             self.buffer += data
-            while b"\n" in self.buffer and len(self.samples) < 50:
+            while b"\n" in self.buffer and (self.testing or len(self.samples) < 50):
                 line, self.buffer = self.buffer.split(b"\n", 1)
                 try:
                     right, left = map(float, line.decode("ascii").strip().split(","))
@@ -104,9 +111,24 @@ class GripCalibrationDialog(QDialog):
                     continue
                 if not (math.isfinite(left) and math.isfinite(right)):
                     continue
-                self.samples.append(left if self.capture_side == "left" else right)
+                raw = left if self.capture_side == "left" else right
+                if self.testing:
+                    c = self.test_values
+                    force = abs((raw - c["zero_counts"]) * c["mass_kg"] *
+                                9.80665 / c["delta_counts"] * c["polarity"])
+                    expected = self.capture_mass * 9.80665
+                    self.status.setText(
+                        f"{self.capture_side.title()}: {force:.2f} N | "
+                        f"Expected: {expected:.2f} N | Difference: {force - expected:+.2f} N")
+                    self.deadline = time.monotonic() + 15
+                else:
+                    self.samples.append(raw)
             if len(self.buffer) > 8192:
                 self.buffer = b""
+            if self.testing:
+                if time.monotonic() > self.deadline:
+                    raise RuntimeError("No valid grip readings received for 15 seconds.")
+                return
             self.status.setText(f"Capturing {self.capture_side}: {len(self.samples)}/50")
             if len(self.samples) == 50:
                 self.finish_capture()
@@ -118,9 +140,39 @@ class GripCalibrationDialog(QDialog):
 
     def stop_capture(self):
         self.timer.stop()
+        self.testing = False
+        self.test_btn.setText("Test calibration")
+        self.test_btn.setEnabled(True)
         for widget in (self.side, self.mass, self.zero_btn, self.load_btn):
             widget.setEnabled(True)
-        self.save_btn.setEnabled(len(self.calibrations) == 2)
+        self.save_btn.setEnabled(bool(self.calibrations))
+
+    def test_calibration(self):
+        if self.testing:
+            self.stop_capture()
+            return
+        side = self.side.currentText().lower()
+        try:
+            values = self.calibrations.get(side)
+            if values is None:
+                if side in self.zeros:
+                    raise ValueError("Capture the known load to complete this calibration first.")
+                with open(os.path.join(config.DATA_DIR, "grip_calibration.json"),
+                          encoding="utf-8") as handle:
+                    values = json.load(handle).get(side)
+            if not values:
+                raise ValueError("Calibrate this hand first.")
+            values = {key: float(values[key]) for key in
+                      ("zero_counts", "delta_counts", "mass_kg", "polarity")}
+            if (not all(math.isfinite(v) for v in values.values()) or
+                    values["delta_counts"] == 0 or values["mass_kg"] <= 0 or
+                    values["polarity"] not in (-1, 1)):
+                raise ValueError("Invalid calibration values.")
+            self.test_values = values
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            self.status.setText(f"Cannot test: {exc}")
+            return
+        self.capture(True, testing=True)
 
     def finish_capture(self):
         mean = statistics.mean(self.samples)
@@ -146,18 +198,26 @@ class GripCalibrationDialog(QDialog):
             for hand in ("left", "right")))
 
     def save(self):
-        if len(self.calibrations) != 2:
+        if not self.calibrations:
             return
         path = os.path.join(config.DATA_DIR, "grip_calibration.json")
         try:
             config.ensure_dirs()
+            saved = {}
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as handle:
+                    saved = json.load(handle)
+                if not isinstance(saved, dict):
+                    raise ValueError("Existing calibration file is not an object.")
+            saved.update(self.calibrations)
             with open(path + ".tmp", "w", encoding="utf-8") as handle:
-                json.dump(self.calibrations, handle, indent=2, allow_nan=False)
+                json.dump(saved, handle, indent=2, allow_nan=False)
             os.replace(path + ".tmp", path)
-        except OSError as exc:
+        except (OSError, ValueError, TypeError) as exc:
             QMessageBox.critical(self, "Calibration save failed", str(exc))
             return
-        QMessageBox.information(self, "Calibration saved", "Both grip calibrations saved.")
+        QMessageBox.information(self, "Calibration saved",
+                                "Saved: " + ", ".join(self.calibrations))
         self.accept()
 
     def cleanup(self, _result):
