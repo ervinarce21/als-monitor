@@ -44,15 +44,15 @@ bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-launcher.sh"
 After installation, start any service from any directory:
 
 ```bash
-als-monitor ui
-als-monitor eye
-als-monitor preview
-als-monitor grip
-als-monitor shoulder
-als-monitor speech
+nexa ui
+nexa eye
+nexa preview
+nexa grip
+nexa shoulder
+nexa speech
 ```
 
-Run `als-monitor` without an option to open the NEXA user interface directly.
+Run `nexa` without an option to open the NEXA user interface directly.
 The launcher automatically finds the project, changes directory, and sets
 `PYTHONPATH`.
 
@@ -110,14 +110,14 @@ Open a new PowerShell or Command Prompt window so the updated user `PATH` is
 loaded. The launcher then works from any directory:
 
 ```powershell
-als-monitor
-als-monitor ui
-als-monitor grip
-als-monitor shoulder
-als-monitor speech
+nexa
+nexa ui
+nexa grip
+nexa shoulder
+nexa speech
 ```
 
-Running `als-monitor` without a service opens the NEXA user interface directly.
+Running `nexa` without a service opens the NEXA user interface directly.
 
 To run without installing the launcher:
 
@@ -141,13 +141,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop-shortcuts.ps1
 - **Shoulder monitor:** Connect a webcam recognized by Windows. The service
   uses camera index `0` by default.
 - **Speech analysis:** Connect a microphone and run
-  `als-monitor speech list-microphones` before recording.
+  `nexa speech list-microphones` before recording.
 - **Eye tracker:** The current eye-camera driver uses Raspberry Pi Picamera2.
   Eye capture and preview are therefore unavailable on Windows.
 
 ### Windows troubleshooting
 
-If `als-monitor` is not recognized, close and reopen the terminal. You can also
+If `nexa` is not recognized, close and reopen the terminal. You can also
 rerun `install-launcher.ps1` after moving the project.
 
 If PowerShell blocks a script, use the provided one-command bypass:
@@ -171,7 +171,7 @@ working interpreter:
 
 ```powershell
 $env:ALS_MONITOR_PYTHON = "C:\Path\To\Python\python.exe"
-als-monitor speech
+nexa speech
 ```
 
 To persist that selection for future terminals:
@@ -272,7 +272,7 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 Open the interactive speech menu:
 
 ```bash
-als-monitor speech
+nexa speech
 ```
 
 The menu includes microphone discovery, database setup, recording, acoustic
@@ -281,35 +281,35 @@ analysis, stored results, baseline comparison, help, and exit.
 List available microphones:
 
 ```bash
-als-monitor speech list-microphones
+nexa speech list-microphones
 ```
 
 Create the speech-analysis database:
 
 ```bash
-als-monitor speech init-db
+nexa speech init-db
 ```
 
 Show all available speech commands:
 
 ```bash
-als-monitor speech --help
+nexa speech --help
 ```
 
 Record and analyze audio directly:
 
 ```bash
-als-monitor speech record --task sustained_vowel --duration 5
-als-monitor speech analyze-sustained-vowel path/to/recording.wav
-als-monitor speech analyze-speech path/to/recording.wav
+nexa speech record --task sustained_vowel --duration 5
+nexa speech analyze-sustained-vowel path/to/recording.wav
+nexa speech analyze-speech path/to/recording.wav
 ```
 
 Create a participant baseline and compare a later session:
 
 ```bash
-als-monitor speech analyze-speech baseline.wav --participant P001 --baseline
-als-monitor speech analyze-speech followup.wav --participant P001 --session-id P001_FOLLOWUP
-als-monitor speech compare-baseline P001 P001_FOLLOWUP
+nexa speech analyze-speech baseline.wav --participant P001 --baseline
+nexa speech analyze-speech followup.wav --participant P001 --session-id P001_FOLLOWUP
+nexa speech compare-baseline P001 P001_FOLLOWUP
 ```
 
 This remains a research prototype. Its acoustic measurements are descriptive

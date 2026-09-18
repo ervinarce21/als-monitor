@@ -91,7 +91,7 @@ function Invoke-ProjectPython {
 
 function Show-LauncherHelp {
     @"
-Usage: als-monitor SERVICE [OPTIONS]
+Usage: nexa [SERVICE] [OPTIONS]
 
 Services:
   ui        Run the NEXA user interface

@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = "Stop"
 $Launcher = (Resolve-Path (Join-Path $PSScriptRoot "als-monitor.ps1")).Path
 $InstallDirectory = Join-Path $env:LOCALAPPDATA "Programs\ALSMonitor\bin"
-$CommandPath = Join-Path $InstallDirectory "als-monitor.cmd"
+$CommandPath = Join-Path $InstallDirectory "nexa.cmd"
 
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 
@@ -25,5 +25,5 @@ if ($InstallDirectory -notin ($env:Path -split ";")) {
 }
 
 Write-Host "Installed: $CommandPath"
-Write-Host "Open a new terminal, then run: als-monitor"
+Write-Host "Open a new terminal, then run: nexa"
 

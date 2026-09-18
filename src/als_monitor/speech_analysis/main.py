@@ -434,7 +434,7 @@ def run_interactive_menu(parser):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="als-monitor speech",
+        prog="nexa speech",
         description="NEXA speech-analysis module (research prototype, "
                      "not a diagnostic device).")
     sub = parser.add_subparsers(dest="command")

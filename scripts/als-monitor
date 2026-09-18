@@ -18,7 +18,7 @@ fi
 
 show_help() {
     cat <<'EOF'
-Usage: als-monitor SERVICE [OPTIONS]
+Usage: nexa [SERVICE] [OPTIONS]
 
 Services:
   ui        Run the NEXA user interface
