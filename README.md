@@ -17,7 +17,7 @@ sudo apt install -y \
   python3-pygame \
   python3-matplotlib \
   python3-tk \
-  python3-sounddevice \
+  python3-venv \
   libportaudio2 \
   alsa-utils \
   python3-serial
@@ -26,7 +26,9 @@ sudo apt install -y \
 Open the project directory:
 
 ```bash
-cd ~/als-monitor
+cd "$HOME/Documents/ALS Monitor/als-monitor"
+python3 -m venv --system-site-packages .venv
+.venv/bin/python -m pip install sounddevice
 ```
 
 Run all commands below from this directory.
@@ -53,6 +55,11 @@ als-monitor speech
 Run `als-monitor` without an option to open the NEXA user interface directly.
 The launcher automatically finds the project, changes directory, and sets
 `PYTHONPATH`.
+
+On Raspberry Pi, the launcher automatically uses `.venv/bin/python` when
+available, falling back to `python3` otherwise. Desktop shortcuts use the same
+launcher, so no environment activation is needed. `--system-site-packages`
+allows the environment to access Picamera2 and the other APT-installed libraries.
 
 NEXA opens at its intended `1024x600` size and can be resized like a normal
 window. Use the sidebar `-`, percentage, and `+` controls to zoom from 75% to

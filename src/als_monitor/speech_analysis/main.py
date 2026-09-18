@@ -150,6 +150,17 @@ def cmd_assess(args):
     except (OSError, ValueError, wave.Error) as exc:
         print("ERROR: could not analyze recording: %s" % exc)
         return 1
+    if args.task == config.TASK_READING:
+        try:
+            with open(config.DEFAULT_PASSAGE_METADATA_PATH, "r") as handle:
+                passage_metadata = json.load(handle)
+            passage_text = config.DEFAULT_PASSAGE_PATH.read_text().strip()
+            metrics["passage_name"] = passage_metadata.get("name")
+            metrics["passage_word_count"] = len(passage_text.split())
+            metrics["passage_expected_syllables"] = passage_metadata.get(
+                "expected_syllables")
+        except (OSError, json.JSONDecodeError):
+            print("WARNING: Rainbow Passage metadata could not be loaded.")
     participant = os.environ.get("NEXA_PARTICIPANT_ID", args.participant)
     session_id = _store_analysis(
         str(wav_path), args.task, metrics, participant,

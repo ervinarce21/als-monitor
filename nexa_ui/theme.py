@@ -50,6 +50,11 @@ QLabel#Instruction {{
 QLabel#Metric {{ font-size: 32px; font-weight: bold; color: {ACCENT}; }}
 QLabel#MetricLabel {{ font-size: 13px; color: {TEXT_DIM}; }}
 QLabel#Notice {{ color: {TEXT_DIM}; font-size: 12px; }}
+QLabel#Passage {{
+    font-size: 18px;
+    color: {TEXT};
+    padding: 12px;
+}}
 
 QPushButton {{
     background-color: {SURFACE_ALT};

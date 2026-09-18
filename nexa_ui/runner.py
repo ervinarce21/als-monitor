@@ -126,7 +126,8 @@ class AssessmentRunner(QDialog):
             )
             avail.setStyleSheet(f"color: {theme.ERROR};")
         op_layout.addWidget(avail)
-        layout.addWidget(op_card, 1)
+        if not self.modality.passage_text:
+            layout.addWidget(op_card, 1)
 
         # Patient side
         pt_card = QFrame()
@@ -137,14 +138,25 @@ class AssessmentRunner(QDialog):
         pt_layout.addWidget(pt_title)
 
         instruction = QLabel(self.modality.patient_instruction)
-        instruction.setObjectName("Instruction")
+        instruction.setObjectName(
+            "H2" if self.modality.passage_text else "Instruction"
+        )
         instruction.setWordWrap(True)
-        instruction.setAlignment(Qt.AlignCenter)
+        instruction.setAlignment(
+            Qt.AlignLeft if self.modality.passage_text else Qt.AlignCenter
+        )
         pt_layout.addWidget(instruction)
 
-        detail = QLabel(self.modality.patient_detail)
+        detail = QLabel(
+            self.modality.passage_text or self.modality.patient_detail
+        )
+        if self.modality.passage_text:
+            detail.setObjectName("Passage")
         detail.setWordWrap(True)
-        detail.setAlignment(Qt.AlignCenter)
+        detail.setAlignment(
+            Qt.AlignLeft | Qt.AlignVCenter
+            if self.modality.passage_text else Qt.AlignCenter
+        )
         pt_layout.addWidget(detail)
         pt_layout.addStretch()
 

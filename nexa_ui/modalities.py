@@ -86,7 +86,7 @@ class Metric:
 class Modality:
     def __init__(self, key, name, subtitle, output_files, metrics,
                  operator_checklist, patient_instruction, patient_detail="",
-                 args=None, est_duration_s=60):
+                 args=None, est_duration_s=60, passage_text=""):
         self.key = key
         self.name = name
         self.subtitle = subtitle
@@ -97,6 +97,7 @@ class Modality:
         self.patient_detail = patient_detail
         self.args = args or []
         self.est_duration_s = est_duration_s
+        self.passage_text = passage_text
 
     # -- launching -------------------------------------------------------
 
@@ -309,14 +310,22 @@ SPEECH_TASKS = {
     "reading": {
         "name": "Reading",
         "subtitle": "Fixed-passage speech timing assessment",
-        "instruction": "Read the displayed passage at your normal pace",
-        "detail": (
-            "Speak clearly at a comfortable volume. This task currently uses the "
-            "shared acoustic analysis while reading-rate measures are scaffolded."
-        ),
-        "duration": 30,
+        "instruction": "Rainbow Passage",
+        "detail": "Read the complete passage shown below.",
+        "duration": 60,
     },
 }
+
+
+RAINBOW_PASSAGE_PATH = os.path.join(
+    config.SOURCE_DIR, "als_monitor", "speech_analysis", "passages",
+    "rainbow_passage.txt",
+)
+try:
+    with open(RAINBOW_PASSAGE_PATH, "r", encoding="utf-8") as passage_file:
+        RAINBOW_PASSAGE = passage_file.read().strip()
+except OSError:
+    RAINBOW_PASSAGE = "Rainbow Passage file is unavailable."
 
 
 def speech_modality(task, wav_path=None):
@@ -353,6 +362,7 @@ def speech_modality(task, wav_path=None):
         patient_detail=detail,
         args=args,
         est_duration_s=duration,
+        passage_text=(RAINBOW_PASSAGE if task == "reading" and not wav_path else ""),
     )
 
 REGISTRY = [GRIP, OCULOMOTOR, MOTOR, SPEECH]

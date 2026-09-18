@@ -10,6 +10,12 @@ PROJECT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 cd "$PROJECT_ROOT"
 
+# Desktop shortcuts do not inherit an activated terminal environment.
+PYTHON_BIN="python3"
+if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+    PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+fi
+
 show_help() {
     cat <<'EOF'
 Usage: als-monitor SERVICE [OPTIONS]
@@ -34,26 +40,26 @@ fi
 
 case "$service" in
     ui|nexa|nexa-ui)
-        exec python3 "$PROJECT_ROOT/nexa_ui/app.py" "$@"
+        exec "$PYTHON_BIN" "$PROJECT_ROOT/nexa_ui/app.py" "$@"
         ;;
     eye|eye-tracker)
-        exec python3 -m als_monitor.eye_tracker "$@"
+        exec "$PYTHON_BIN" -m als_monitor.eye_tracker "$@"
         ;;
     preview|eye-preview)
-        exec python3 -m als_monitor.eye_tracker.preview "$@"
+        exec "$PYTHON_BIN" -m als_monitor.eye_tracker.preview "$@"
         ;;
     grip|grip-monitor)
-        exec python3 -m als_monitor.grip_monitor "$@"
+        exec "$PYTHON_BIN" -m als_monitor.grip_monitor "$@"
         ;;
     shoulder|shoulder-monitor)
-        exec python3 -m als_monitor.shoulder_monitor "$@"
+        exec "$PYTHON_BIN" -m als_monitor.shoulder_monitor "$@"
         ;;
     speech|speech-analysis)
         echo "Starting NEXA speech analysis..."
         if [[ $# -eq 0 ]]; then
-            exec python3 -m als_monitor.speech_analysis menu
+            exec "$PYTHON_BIN" -m als_monitor.speech_analysis menu
         fi
-        exec python3 -m als_monitor.speech_analysis "$@"
+        exec "$PYTHON_BIN" -m als_monitor.speech_analysis "$@"
         ;;
     help|-h|--help)
         show_help

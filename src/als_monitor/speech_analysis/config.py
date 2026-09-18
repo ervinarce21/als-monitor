@@ -24,13 +24,12 @@ DATA_DIR = PROJECT_ROOT / "data" / "speech_analysis"
 RECORDINGS_DIR = DATA_DIR / "recordings"
 RESULTS_DIR = DATA_DIR / "results"
 LOGS_DIR = DATA_DIR / "logs"
-PASSAGES_DIR = DATA_DIR / "passages"
+PASSAGES_DIR = PACKAGE_DIR / "passages"
 DATABASE_DIR = DATA_DIR / "database"
 DATABASE_PATH = DATABASE_DIR / "nexa_speech.db"
 SCHEMA_PATH = PACKAGE_DIR / "schema.sql"
 
-for _dir in (RECORDINGS_DIR, RESULTS_DIR, LOGS_DIR, PASSAGES_DIR,
-             DATABASE_DIR):
+for _dir in (RECORDINGS_DIR, RESULTS_DIR, LOGS_DIR, DATABASE_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 # =====================================================================
