@@ -25,15 +25,15 @@ INITIAL_Y_LIMITS = (-10.0, 10.0)
 
 # ESP32 sends raw counts in right,left order. Calibrated with a 2 kg load.
 CALIBRATION = {
-    "left": {"zero_counts": 58900.0, "loaded_counts": 19700.0, "mass_kg": 2.0},
-    "right": {"zero_counts": -115000.0, "loaded_counts": -52000.0, "mass_kg": 2.0},
+    "left": {"zero_counts": -114000.0, "delta_counts": 63000.0, "mass_kg": 2.0},
+    "right": {"zero_counts": 59500.0, "delta_counts": -39200.0, "mass_kg": 2.0},
 }
 
 
 def force_newtons(raw_counts, side):
     calibration = CALIBRATION[side]
     scale = (calibration["mass_kg"] * 9.80665 /
-             (calibration["loaded_counts"] - calibration["zero_counts"]))
+             calibration["delta_counts"])
     return (raw_counts - calibration["zero_counts"]) * scale
 
 
