@@ -13,6 +13,7 @@ into the log pane; its output files are copied into the session's raw folder.
 """
 
 import json
+import math
 import os
 import shutil
 import time
@@ -23,7 +24,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
     QFrame, QGridLayout, QLineEdit, QMessageBox, QStackedWidget, QWidget,
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView,
+    QAbstractItemView, QScrollArea,
 )
 
 import config
@@ -126,8 +127,7 @@ class AssessmentRunner(QDialog):
             )
             avail.setStyleSheet(f"color: {theme.ERROR};")
         op_layout.addWidget(avail)
-        if not self.modality.passage_text:
-            layout.addWidget(op_card, 1)
+        layout.addWidget(op_card, 1)
 
         # Patient side
         pt_card = QFrame()
@@ -138,25 +138,14 @@ class AssessmentRunner(QDialog):
         pt_layout.addWidget(pt_title)
 
         instruction = QLabel(self.modality.patient_instruction)
-        instruction.setObjectName(
-            "H2" if self.modality.passage_text else "Instruction"
-        )
+        instruction.setObjectName("Instruction")
         instruction.setWordWrap(True)
-        instruction.setAlignment(
-            Qt.AlignLeft if self.modality.passage_text else Qt.AlignCenter
-        )
+        instruction.setAlignment(Qt.AlignCenter)
         pt_layout.addWidget(instruction)
 
-        detail = QLabel(
-            self.modality.passage_text or self.modality.patient_detail
-        )
-        if self.modality.passage_text:
-            detail.setObjectName("Passage")
+        detail = QLabel(self.modality.patient_detail)
         detail.setWordWrap(True)
-        detail.setAlignment(
-            Qt.AlignLeft | Qt.AlignVCenter
-            if self.modality.passage_text else Qt.AlignCenter
-        )
+        detail.setAlignment(Qt.AlignCenter)
         pt_layout.addWidget(detail)
         pt_layout.addStretch()
 
@@ -190,7 +179,7 @@ class AssessmentRunner(QDialog):
         self.running_label = QLabel("Assessment running…")
         self.running_label.setObjectName("H2")
         self.elapsed_label = QLabel(
-            f"0.0 s / {self.modality.est_duration_s:g} s"
+            f"{math.ceil(self.modality.est_duration_s)} s"
         )
         self.elapsed_label.setObjectName("Metric")
         sl.addWidget(self.running_label)
@@ -210,11 +199,25 @@ class AssessmentRunner(QDialog):
         )
         note.setObjectName("Dim")
         note.setWordWrap(True)
-        layout.addWidget(note)
+        if not self.modality.passage_text:
+            layout.addWidget(note)
+        else:
+            passage = QLabel(self.modality.passage_text)
+            passage.setObjectName("Passage")
+            passage.setTextFormat(Qt.PlainText)
+            passage.setWordWrap(True)
+            passage.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            passage.setMargin(12)
+            passage_scroll = QScrollArea()
+            passage_scroll.setWidgetResizable(True)
+            passage_scroll.setWidget(passage)
+            layout.addWidget(passage_scroll, 1)
 
         self.log = QPlainTextEdit()
         self.log.setObjectName("Log")
         self.log.setReadOnly(True)
+        if self.modality.passage_text:
+            self.log.setMaximumHeight(65)
         layout.addWidget(self.log, 1)
 
         abort_btn = QPushButton("Abort assessment")
@@ -287,7 +290,7 @@ class AssessmentRunner(QDialog):
         self.start_perf = time.perf_counter()
         self.status = "running"
         self.elapsed_label.setText(
-            f"0.0 s / {self.modality.est_duration_s:g} s"
+            f"{math.ceil(self.modality.est_duration_s)} s"
         )
         self.progress.setValue(0)
         config.ensure_dirs()
@@ -334,7 +337,8 @@ class AssessmentRunner(QDialog):
             return
         elapsed = time.perf_counter() - self.start_perf
         estimate = max(float(self.modality.est_duration_s), 0.1)
-        self.elapsed_label.setText(f"{elapsed:.1f} s / {estimate:g} s")
+        remaining = max(0, math.ceil(estimate - elapsed))
+        self.elapsed_label.setText(f"{remaining} s" if remaining else "Finishing...")
         self.progress.setValue(min(1000, round(1000 * elapsed / estimate)))
         if elapsed > config.MODALITY_TIMEOUT_S:
             self._append_log(

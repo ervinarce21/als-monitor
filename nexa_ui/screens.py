@@ -92,15 +92,16 @@ def _speech_task_key(run, metrics):
 
 
 def show_baseline_comparison_dialog(parent, baseline_run, current_run, db, task):
+    modality = modalities.get(current_run["modality"])
     baseline_metrics = db.run_metrics(baseline_run)
     current_metrics = db.run_metrics(current_run)
     dialog = QDialog(parent)
-    dialog.setWindowTitle("Speech baseline comparison")
+    dialog.setWindowTitle(f"{modality.name} baseline comparison")
     dialog.resize(min(820, config.SCREEN_WIDTH - 30),
                   min(520, config.SCREEN_HEIGHT - 30))
     layout = QVBoxLayout(dialog)
 
-    heading = QLabel(f"Speech - {task.replace('_', ' ').title()}")
+    heading = QLabel(modality.name + (f" - {task.replace('_', ' ').title()}" if task else ""))
     heading.setObjectName("H1")
     layout.addWidget(heading)
     context = QLabel(
@@ -109,7 +110,7 @@ def show_baseline_comparison_dialog(parent, baseline_run, current_run, db, task)
     context.setObjectName("Dim")
     layout.addWidget(context)
 
-    table = QTableWidget(len(modalities.SPEECH.metrics), 5, dialog)
+    table = QTableWidget(len(modality.metrics), 5, dialog)
     table.setHorizontalHeaderLabels(
         ["Measurement", "Baseline", "Current", "Change", "Change %"]
     )
@@ -118,7 +119,7 @@ def show_baseline_comparison_dialog(parent, baseline_run, current_run, db, task)
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-    for row, metric in enumerate(modalities.SPEECH.metrics):
+    for row, metric in enumerate(modality.metrics):
         baseline = baseline_metrics.get(metric.key)
         current = current_metrics.get(metric.key)
         change = None
@@ -176,8 +177,7 @@ def show_session_results_dialog(parent, db, session_id):
         task_key = _speech_task_key(run, metrics) if run["modality"] == "speech" else ""
         task = task_key.replace("_", " ").title()
         quality = str(metrics.get("quality_status") or "")
-        baseline = (db.get_baseline_run(participant_id, "speech", task_key)
-                    if task_key else None)
+        baseline = db.get_baseline_run(participant_id, run["modality"], task_key)
         values = [
             modality.name if modality else run["modality"].replace("_", " ").title(),
             task or "Not specified",
@@ -233,43 +233,49 @@ def show_session_results_dialog(parent, db, session_id):
     details_btn.clicked.connect(show_selected_run)
     table.doubleClicked.connect(lambda _index: show_selected_run())
 
-    def selected_speech_run():
+    def selected_assessment_run():
         row = table.currentRow()
         if row < 0 or row >= len(runs):
             return None, ""
         run = runs[row]
-        if run["modality"] != "speech":
+        if modalities.get(run["modality"]) is None or run["status"] != "completed":
             return None, ""
-        return run, _speech_task_key(run, db.run_metrics(run))
+        task = (_speech_task_key(run, db.run_metrics(run))
+                if run["modality"] == "speech" else "")
+        if run["modality"] == "speech" and not task:
+            return None, ""
+        return run, task
 
     def update_baseline_actions():
-        run, task = selected_speech_run()
-        valid = bool(run is not None and task and run["status"] == "completed")
+        run, task = selected_assessment_run()
+        valid = run is not None
         baseline_btn.setEnabled(valid)
-        baseline = (db.get_baseline_run(participant_id, "speech", task)
+        baseline = (db.get_baseline_run(participant_id, run["modality"], task)
                     if valid else None)
         compare_btn.setEnabled(valid and baseline is not None)
 
     def set_baseline():
-        run, task = selected_speech_run()
-        if run is None or not task:
+        run, task = selected_assessment_run()
+        if run is None:
             return
         reply = QMessageBox.question(
-            dialog, "Set speech baseline",
-            f"Use this {task.replace('_', ' ')} assessment as the participant baseline?",
+            dialog, "Set assessment baseline",
+            f"Use this {modalities.get(run['modality']).name} "
+            f"{task.replace('_', ' ')} assessment as the participant baseline?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
         try:
-            db.set_baseline_run(participant_id, "speech", task, run["id"])
+            db.set_baseline_run(participant_id, run["modality"], task, run["id"])
         except Exception as exc:
             QMessageBox.critical(dialog, "Baseline error", str(exc))
             return
         for row_index, candidate in enumerate(runs):
-            if candidate["modality"] != "speech":
+            if candidate["modality"] != run["modality"]:
                 continue
-            candidate_task = _speech_task_key(candidate, db.run_metrics(candidate))
+            candidate_task = (_speech_task_key(candidate, db.run_metrics(candidate))
+                              if candidate["modality"] == "speech" else "")
             if candidate_task == task:
                 table.item(row_index, 5).setText(
                     "Yes" if candidate["id"] == run["id"] else ""
@@ -277,13 +283,13 @@ def show_session_results_dialog(parent, db, session_id):
         update_baseline_actions()
 
     def compare_baseline():
-        run, task = selected_speech_run()
-        if run is None or not task:
+        run, task = selected_assessment_run()
+        if run is None:
             return
-        baseline = db.get_baseline_run(participant_id, "speech", task)
+        baseline = db.get_baseline_run(participant_id, run["modality"], task)
         if baseline is None:
             QMessageBox.information(dialog, "No baseline",
-                                    "Set a baseline for this speech task first.")
+                                    "Set a baseline for this assessment first.")
             return
         show_baseline_comparison_dialog(dialog, baseline, run, db, task)
 

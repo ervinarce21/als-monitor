@@ -59,7 +59,7 @@ RUN_STAGING_DIR = os.path.join(DATA_DIR, "staging")
 
 # Hardware devices checked on the System Check screen.
 DEVICE_CHECKS = {
-    "Arduino (grip)": "/dev/ttyACM0",
+    "ESP32 (grip)": "/dev/ttyUSB0",
     "CSI camera (OV9281)": "/dev/video0",
     "USB webcam": "/dev/video1",
 }

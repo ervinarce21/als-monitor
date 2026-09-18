@@ -35,7 +35,7 @@ for _dir in (RECORDINGS_DIR, RESULTS_DIR, LOGS_DIR, DATABASE_DIR):
 # =====================================================================
 # AUDIO RECORDING
 # =====================================================================
-SAMPLE_RATE = 44100          # Hz
+SAMPLE_RATE = 48000          # Preferred Hz; recorder can fall back to device default.
 CHANNELS = 1                 # mono
 SAMPLE_WIDTH_BITS = 16       # PCM16
 SUBTYPE = "PCM_16"           # soundfile subtype string

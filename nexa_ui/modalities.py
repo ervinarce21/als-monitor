@@ -310,8 +310,14 @@ SPEECH_TASKS = {
     "reading": {
         "name": "Reading",
         "subtitle": "Fixed-passage speech timing assessment",
-        "instruction": "Rainbow Passage",
-        "detail": "Read the complete passage shown below.",
+        "instruction": "Read the passage aloud at your normal speaking pace",
+        "detail": (
+            "When the assessment starts, the Rainbow Passage will appear. "
+            "Begin at the first word and read in order, using your usual voice "
+            "and a comfortable volume. Pause naturally for punctuation and "
+            "breathing; do not rush to finish. If you finish before the recording "
+            "ends, remain quiet."
+        ),
         "duration": 60,
     },
 }

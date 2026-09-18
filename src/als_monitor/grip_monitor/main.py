@@ -2,6 +2,7 @@
 
 import collections
 import json
+import math
 import os
 import threading
 import time
@@ -21,6 +22,19 @@ SERIAL_PORT = "/dev/ttyUSB0"
 BAUD_RATE = 115200
 WINDOW_SECONDS = 10.0
 INITIAL_Y_LIMITS = (-10.0, 10.0)
+
+# ESP32 sends raw counts in right,left order. Calibrated with a 2 kg load.
+CALIBRATION = {
+    "left": {"zero_counts": 58900.0, "loaded_counts": 19700.0, "mass_kg": 2.0},
+    "right": {"zero_counts": -115000.0, "loaded_counts": -52000.0, "mass_kg": 2.0},
+}
+
+
+def force_newtons(raw_counts, side):
+    calibration = CALIBRATION[side]
+    scale = (calibration["mass_kg"] * 9.80665 /
+             (calibration["loaded_counts"] - calibration["zero_counts"]))
+    return (raw_counts - calibration["zero_counts"]) * scale
 
 
 def format_duration(seconds):
@@ -46,6 +60,10 @@ def read_serial_data(timestamps, left_data, right_data, session, data_lock,
                     right_value, left_value = map(float, line.split(","))
                 except ValueError:
                     continue
+                if not (math.isfinite(right_value) and math.isfinite(left_value)):
+                    continue
+                right_value = force_newtons(right_value, "right")
+                left_value = force_newtons(left_value, "left")
 
                 current_time = time.time()
                 with data_lock:
@@ -184,6 +202,8 @@ def main():
                     "peak_left": session["left_max"],
                     "peak_right": session["right_max"],
                     "duration": elapsed,
+                    "force_unit": "N",
+                    "calibration": CALIBRATION,
                 }, handle, indent=2)
     return 0
 
