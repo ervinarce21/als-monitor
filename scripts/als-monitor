@@ -52,7 +52,10 @@ case "$service" in
         exec "$PYTHON_BIN" -m als_monitor.grip_monitor "$@"
         ;;
     shoulder|shoulder-monitor)
-        exec "$PYTHON_BIN" -m als_monitor.shoulder_monitor "$@"
+        if [[ -x "$PROJECT_ROOT/.venv-shoulder/bin/python" ]]; then
+            PYTHON_BIN="$PROJECT_ROOT/.venv-shoulder/bin/python"
+        fi
+        exec "$PYTHON_BIN" -u -X faulthandler -m als_monitor.shoulder_monitor "$@"
         ;;
     speech|speech-analysis)
         echo "Starting NEXA speech analysis..."

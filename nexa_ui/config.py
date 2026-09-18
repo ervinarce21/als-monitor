@@ -41,6 +41,16 @@ REPORT_DIR = os.path.join(DATA_DIR, "reports")
 # Python interpreter used to launch modality scripts
 PYTHON_BIN = sys.executable
 
+
+def modality_python(key):
+    """Keep the Pi-compatible pose runtime separate from the UI runtime."""
+    if key == "motor":
+        relative = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
+        shoulder_python = os.path.join(NEXA_ROOT, ".venv-shoulder", *relative)
+        if os.path.isfile(shoulder_python) and os.access(shoulder_python, os.X_OK):
+            return shoulder_python
+    return PYTHON_BIN
+
 # ---------------------------------------------------------------------------
 # MODALITY SCRIPT LOCATIONS
 # Point these at your existing, already-working modality code.

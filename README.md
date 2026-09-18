@@ -393,4 +393,15 @@ PYTHONPATH="$PWD/src" .venv-shoulder/bin/python -u -X faulthandler \
   -m als_monitor.shoulder_monitor
 ```
 
-**For now, use this direct command:** `nexa` still uses your original `.venv`. If initialization fails, share its output before we change the launcher.
+Both `nexa shoulder` and shoulder assessments launched from the NEXA UI automatically
+use `.venv-shoulder` when its Python executable exists. Other services keep using
+their normal Python environment. Without `.venv-shoulder`, shoulder monitoring
+also falls back to the normal environment.
+
+After updating the project on the Pi, close and reopen the UI:
+
+```bash
+nexa shoulder
+# Or open the UI and select the shoulder assessment:
+nexa
+```
