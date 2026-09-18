@@ -5,6 +5,8 @@ Single Qt stylesheet plus a few colour constants. Tuned for a 7" 1024x600
 touchscreen: high contrast, large hit targets, no hover-dependent affordances.
 """
 
+import re
+
 BG = "#101418"
 SURFACE = "#181E25"
 SURFACE_ALT = "#212A33"
@@ -135,3 +137,14 @@ QScrollBar:vertical {{ background: {BG}; width: 14px; }}
 QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 7px; min-height: 40px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0px; }}
 """
+
+
+def scaled_stylesheet(scale=1.0):
+    """Scale pixel dimensions for explicit user-controlled UI zoom."""
+    scale = float(scale)
+
+    def replace(match):
+        value = float(match.group(1))
+        return f"{max(1, round(value * scale))}px"
+
+    return re.sub(r"(\d+(?:\.\d+)?)px", replace, STYLESHEET)

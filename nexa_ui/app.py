@@ -11,9 +11,10 @@ once a session has been opened for a participant.
 import sys
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFrame,
-    QPushButton, QStackedWidget, QLabel, QButtonGroup, QMessageBox,
+    QPushButton, QStackedWidget, QLabel, QButtonGroup, QMessageBox, QShortcut,
 )
 
 import config
@@ -38,8 +39,10 @@ class MainWindow(QMainWindow):
     def __init__(self, db):
         super().__init__()
         self.db = db
+        self.ui_scale = config.UI_SCALE_DEFAULT
         self.setWindowTitle("NEXA")
         self.resize(config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+        self.setMinimumSize(config.MIN_WINDOW_WIDTH, config.MIN_WINDOW_HEIGHT)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -48,10 +51,10 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         # -- sidebar -------------------------------------------------------
-        sidebar = QFrame()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(180)
-        side_layout = QVBoxLayout(sidebar)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("Sidebar")
+        self.sidebar.setFixedWidth(180)
+        side_layout = QVBoxLayout(self.sidebar)
         side_layout.setContentsMargins(0, 20, 0, 12)
         side_layout.setSpacing(0)
 
@@ -74,12 +77,31 @@ class MainWindow(QMainWindow):
 
         side_layout.addStretch()
 
+        zoom_row = QHBoxLayout()
+        zoom_row.setContentsMargins(4, 0, 4, 8)
+        zoom_out_btn = QPushButton("-")
+        zoom_out_btn.setFixedWidth(32)
+        zoom_out_btn.setToolTip("Zoom out (Ctrl+-)")
+        zoom_out_btn.clicked.connect(self.zoom_out)
+        self.zoom_reset_btn = QPushButton("100%")
+        self.zoom_reset_btn.setFixedWidth(50)
+        self.zoom_reset_btn.setToolTip("Reset zoom (Ctrl+0)")
+        self.zoom_reset_btn.clicked.connect(self.reset_zoom)
+        zoom_in_btn = QPushButton("+")
+        zoom_in_btn.setFixedWidth(32)
+        zoom_in_btn.setToolTip("Zoom in (Ctrl++)")
+        zoom_in_btn.clicked.connect(self.zoom_in)
+        zoom_row.addWidget(zoom_out_btn)
+        zoom_row.addWidget(self.zoom_reset_btn, 1)
+        zoom_row.addWidget(zoom_in_btn)
+        side_layout.addLayout(zoom_row)
+
         quit_btn = QPushButton("Exit")
         quit_btn.setObjectName("NavItem")
         quit_btn.clicked.connect(self.close)
         side_layout.addWidget(quit_btn)
 
-        root.addWidget(sidebar)
+        root.addWidget(self.sidebar)
 
         # -- screens -------------------------------------------------------
         self.stack = QStackedWidget()
@@ -106,6 +128,15 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(screen)
 
         root.addWidget(self.stack, 1)
+
+        self.zoom_shortcuts = []
+        for sequence, handler in (
+                ("Ctrl++", self.zoom_in), ("Ctrl+=", self.zoom_in),
+                ("Ctrl+-", self.zoom_out), ("Ctrl+0", self.reset_zoom)):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ApplicationShortcut)
+            shortcut.activated.connect(handler)
+            self.zoom_shortcuts.append(shortcut)
 
         self.nav_buttons["session"].setEnabled(False)
         self.navigate("home")
@@ -138,6 +169,26 @@ class MainWindow(QMainWindow):
         self.nav_buttons["session"].setEnabled(False)
         self.navigate("history")
 
+    # -- display ----------------------------------------------------------
+
+    def set_zoom(self, scale):
+        scale = max(config.UI_SCALE_MIN, min(config.UI_SCALE_MAX, scale))
+        self.ui_scale = round(scale, 2)
+        QApplication.instance().setStyleSheet(
+            theme.scaled_stylesheet(self.ui_scale)
+        )
+        self.sidebar.setFixedWidth(round(180 * self.ui_scale))
+        self.zoom_reset_btn.setText(f"{round(self.ui_scale * 100)}%")
+
+    def zoom_in(self):
+        self.set_zoom(self.ui_scale + config.UI_SCALE_STEP)
+
+    def zoom_out(self):
+        self.set_zoom(self.ui_scale - config.UI_SCALE_STEP)
+
+    def reset_zoom(self):
+        self.set_zoom(config.UI_SCALE_DEFAULT)
+
     # -- lifecycle -------------------------------------------------------
 
     def closeEvent(self, event):
@@ -162,6 +213,16 @@ class MainWindow(QMainWindow):
             else:
                 self.showFullScreen()
             return
+        if event.modifiers() & Qt.ControlModifier:
+            if event.key() in (Qt.Key_Plus, Qt.Key_Equal):
+                self.zoom_in()
+                return
+            if event.key() == Qt.Key_Minus:
+                self.zoom_out()
+                return
+            if event.key() == Qt.Key_0:
+                self.reset_zoom()
+                return
         super().keyPressEvent(event)
 
 
@@ -169,7 +230,7 @@ def main():
     config.ensure_dirs()
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(theme.STYLESHEET)
+    app.setStyleSheet(theme.scaled_stylesheet(config.UI_SCALE_DEFAULT))
     if config.HIDE_CURSOR:
         app.setOverrideCursor(Qt.BlankCursor)
 

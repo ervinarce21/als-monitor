@@ -54,6 +54,11 @@ Run `als-monitor` without an option to open the NEXA user interface directly.
 The launcher automatically finds the project, changes directory, and sets
 `PYTHONPATH`.
 
+NEXA opens at its intended `1024x600` size and can be resized like a normal
+window. Use the sidebar `-`, percentage, and `+` controls to zoom from 75% to
+150%. Keyboard controls are `Ctrl+-`, `Ctrl+0`, and `Ctrl++`; `F11` toggles
+fullscreen mode.
+
 ## Windows setup
 
 ### 1. Install Python

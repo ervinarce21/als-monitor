@@ -24,6 +24,22 @@ class CameraError(RuntimeError):
     """Raised for any camera initialisation or capture failure."""
 
 
+def _select_camera(cameras, model):
+    matches = [index for index, info in enumerate(cameras)
+               if model and model.casefold() in str(info.get("Model", "")).casefold()]
+    if len(matches) != 1:
+        available = ", ".join(
+            "%d: %s (%s)" % (index, info.get("Model", "unknown"), info.get("Id", ""))
+            for index, info in enumerate(cameras)
+        ) or "none"
+        raise CameraError(
+            "Expected one camera matching %r; found %d. Available cameras: %s. "
+            "Check the eye sensor connection/driver and CAMERA_MODEL in eye_tracker/config.py."
+            % (model, len(matches), available)
+        )
+    return matches[0]
+
+
 def _clock_offset():
     """
     Offset that converts a libcamera SensorTimestamp (CLOCK_BOOTTIME, ns)
@@ -57,7 +73,12 @@ class IRCamera:
                 % _PICAMERA2_IMPORT_ERROR
             )
         try:
-            self.picam2 = Picamera2()
+            cameras = Picamera2.global_camera_info()
+            camera_index = _select_camera(cameras, config.CAMERA_MODEL)
+            selected = cameras[camera_index]
+            print("[camera] Selected %s (%s), index %d" % (
+                selected.get("Model"), selected.get("Id", ""), camera_index), flush=True)
+            self.picam2 = Picamera2(camera_num=camera_index)
         except Exception as exc:
             raise CameraError("Could not open the camera: %s" % exc)
 

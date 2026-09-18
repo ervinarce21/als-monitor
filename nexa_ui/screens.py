@@ -8,6 +8,7 @@ System Check. Each screen is a QWidget swapped into the main window's stack.
 import json
 import os
 import shutil
+import subprocess
 
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QTimer
 from PyQt5.QtGui import QDesktopServices
@@ -902,6 +903,49 @@ class HistoryScreen(QWidget):
 # SYSTEM CHECK
 # ===========================================================================
 
+def _detect_microphone():
+    """Return (expected, status, ok) for an input-capable audio device."""
+    try:
+        import sounddevice as sd
+
+        devices = sd.query_devices()
+        inputs = [(index, device) for index, device in enumerate(devices)
+                  if int(device.get("max_input_channels", 0)) > 0]
+        if not inputs:
+            return "Input-capable audio device", "No microphone detected", False
+
+        try:
+            default_index = int(sd.default.device[0])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            default_index = -1
+        selected = next((item for item in inputs if item[0] == default_index),
+                        inputs[0])
+        index, device = selected
+        name = str(device.get("name") or f"Device {index}")
+        channels = int(device.get("max_input_channels", 0))
+        suffix = " (default)" if index == default_index else ""
+        return ("Input-capable audio device",
+                f"{name} - {channels} input channel(s){suffix}", True)
+    except Exception:
+        arecord = shutil.which("arecord")
+        if arecord:
+            try:
+                result = subprocess.run(
+                    [arecord, "-l"], capture_output=True, text=True,
+                    check=False, timeout=5,
+                )
+                cards = [line for line in result.stdout.splitlines()
+                         if line.lstrip().startswith("card ")]
+                if result.returncode == 0 and cards:
+                    return ("Input-capable audio device",
+                            f"{len(cards)} ALSA capture device(s) detected", True)
+                return ("Input-capable audio device",
+                        "No ALSA microphone detected", False)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return ("Input-capable audio device",
+                "Audio detection unavailable (install sounddevice)", False)
+
 class SystemCheckScreen(QWidget):
     def __init__(self, db):
         super().__init__()
@@ -928,8 +972,8 @@ class SystemCheckScreen(QWidget):
         layout.addWidget(self.table, 1)
 
         note = QLabel(
-            "Device checks confirm the node exists, not that the device is functioning. "
-            "Run each modality's own self-test for a functional check."
+            "Device checks confirm availability and enumeration, not recording quality. "
+            "Run each assessment's own test for a functional check."
         )
         note.setObjectName("Notice")
         note.setWordWrap(True)
@@ -950,6 +994,9 @@ class SystemCheckScreen(QWidget):
         for label, path in config.DEVICE_CHECKS.items():
             ok = os.path.exists(path)
             entries.append((label, path, "Present" if ok else "Not detected", ok))
+
+        mic_expected, mic_status, mic_ok = _detect_microphone()
+        entries.append(("Microphone input", mic_expected, mic_status, mic_ok))
 
         for label, path in (("Data directory", config.DATA_DIR),
                             ("Database", config.DB_PATH),

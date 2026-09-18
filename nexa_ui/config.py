@@ -17,9 +17,15 @@ import sys
 # ---------------------------------------------------------------------------
 SCREEN_WIDTH = 1024
 SCREEN_HEIGHT = 600
-FULLSCREEN = True
+MIN_WINDOW_WIDTH = 640
+MIN_WINDOW_HEIGHT = 400
+FULLSCREEN = False
 HIDE_CURSOR = False          # set True for kiosk use with touch only
 TOUCH_MIN_BUTTON_HEIGHT = 48  # minimum touch target height in px
+UI_SCALE_DEFAULT = 1.0
+UI_SCALE_MIN = 0.75
+UI_SCALE_MAX = 1.50
+UI_SCALE_STEP = 0.10
 
 # ---------------------------------------------------------------------------
 # PATHS

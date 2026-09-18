@@ -11,6 +11,7 @@ deeper in the code base.
 # different pixel formats and controls. Everything that depends on that
 # lives here and NOWHERE else.
 # =====================================================================
+CAMERA_MODEL = "ov9281"     # Match the intended eye sensor, not the default webcam.
 CAMERA_WIDTH = 640          # OV9281 native is 1280x800; 640x400 is a fast crop/bin
 CAMERA_HEIGHT = 400
 CAMERA_FPS = 120            # requested frame rate (FrameDurationLimits)

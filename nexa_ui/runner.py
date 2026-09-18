@@ -52,7 +52,10 @@ class AssessmentRunner(QDialog):
 
         self.setWindowTitle(f"NEXA — {modality.name}")
         self.setModal(True)
-        self.resize(config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+        if parent is not None:
+            self.resize(parent.size())
+        else:
+            self.resize(config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
         if config.FULLSCREEN:
             self.showFullScreen()
 
