@@ -12,16 +12,18 @@ The modality program is launched unmodified. Its stdout/stderr is mirrored
 into the log pane; its output files are copied into the session's raw folder.
 """
 
+import json
 import os
 import shutil
 import time
 from datetime import datetime
 
-from PyQt5.QtCore import Qt, QProcess, QTimer
+from PyQt5.QtCore import Qt, QProcess, QProcessEnvironment, QTimer
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit,
     QFrame, QGridLayout, QLineEdit, QMessageBox, QStackedWidget, QWidget,
-    QProgressBar,
+    QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView,
 )
 
 import config
@@ -46,6 +48,7 @@ class AssessmentRunner(QDialog):
         self.metrics = {}
         self.saved_run_id = None
         self.copied_files = []
+        self.run_output_dir = None
 
         self.setWindowTitle(f"NEXA — {modality.name}")
         self.setModal(True)
@@ -114,7 +117,7 @@ class AssessmentRunner(QDialog):
         else:
             avail.setText(
                 f"NOT CONFIGURED — no script found at:\n{self.modality.script_path}\n"
-                "Set the path in config.MODALITY_PATHS."
+                "Check config.MODALITY_MODULES and the src package."
             )
             avail.setStyleSheet(f"color: {theme.ERROR};")
         op_layout.addWidget(avail)
@@ -215,10 +218,16 @@ class AssessmentRunner(QDialog):
         self.metrics_grid.setContentsMargins(18, 18, 18, 18)
         layout.addWidget(metrics_card)
 
+        files_row = QHBoxLayout()
         self.files_label = QLabel()
         self.files_label.setObjectName("Dim")
         self.files_label.setWordWrap(True)
-        layout.addWidget(self.files_label)
+        files_row.addWidget(self.files_label, 1)
+        self.details_btn = QPushButton("Show details")
+        self.details_btn.setEnabled(False)
+        self.details_btn.clicked.connect(self._show_details)
+        files_row.addWidget(self.details_btn)
+        layout.addLayout(files_row)
 
         layout.addWidget(QLabel("Operator notes (optional)"))
         self.notes_edit = QLineEdit()
@@ -247,7 +256,7 @@ class AssessmentRunner(QDialog):
     def _start_run(self):
         if not self.modality.is_available():
             QMessageBox.warning(self, "Not configured",
-                                "The modality program was not found. Check config.MODALITY_PATHS.")
+                                "The modality package was not found. Check config.MODALITY_MODULES.")
             return
 
         self.log.clear()
@@ -255,11 +264,31 @@ class AssessmentRunner(QDialog):
         self.copied_files = []
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.start_perf = time.perf_counter()
+        self.status = "running"
+        config.ensure_dirs()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.run_output_dir = os.path.join(
+            config.RUN_STAGING_DIR, f"{self.modality.key}_{stamp}")
+        os.makedirs(self.run_output_dir, exist_ok=True)
 
         cmd = self.modality.build_command()
         self._append_log(f"$ {' '.join(cmd)}")
 
         self.process = QProcess(self)
+        environment = QProcessEnvironment.systemEnvironment()
+        old_pythonpath = environment.value("PYTHONPATH")
+        pythonpath = config.SOURCE_DIR
+        if old_pythonpath:
+            pythonpath += os.pathsep + old_pythonpath
+        environment.insert("PYTHONPATH", pythonpath)
+        environment.insert("NEXA_OUTPUT_DIR", self.run_output_dir)
+        environment.insert("NEXA_SESSION_ID", str(self.session_id))
+        session = self.db.get_session(self.session_id)
+        if session is not None:
+            participant = self.db.get_participant(session["participant_id"])
+            if participant is not None:
+                environment.insert("NEXA_PARTICIPANT_ID", participant["code"])
+        self.process.setProcessEnvironment(environment)
         self.process.setWorkingDirectory(self.modality.working_dir)
         self.process.setProcessChannelMode(QProcess.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_output)
@@ -341,7 +370,7 @@ class AssessmentRunner(QDialog):
     def _enter_review(self):
         self.elapsed_timer.stop()
 
-        output_paths = self.modality.collect_output_files()
+        output_paths = self.modality.collect_output_files(self.run_output_dir)
         self.metrics = self.modality.parse_metrics(output_paths)
         self._pending_output_paths = output_paths
 
@@ -383,8 +412,52 @@ class AssessmentRunner(QDialog):
                 "No output files found. Check that the modality program's output "
                 "filenames match modalities.py."
             )
+        self.details_btn.setEnabled(bool(self.metrics))
 
         self.stack.setCurrentIndex(PHASE_REVIEW)
+
+    def _show_details(self):
+        """Show every metric returned by the modality analysis."""
+        if not self.metrics:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{self.modality.name} analysis details")
+        dialog.resize(min(760, config.SCREEN_WIDTH - 40),
+                      min(520, config.SCREEN_HEIGHT - 40))
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("Analysis details")
+        title.setObjectName("H2")
+        layout.addWidget(title)
+
+        table = QTableWidget(len(self.metrics), 2, dialog)
+        table.setHorizontalHeaderLabels(["Measurement", "Value"])
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+
+        for row, (key, value) in enumerate(sorted(self.metrics.items())):
+            label = key.replace("_", " ").strip().title()
+            if isinstance(value, (dict, list, tuple)):
+                display = json.dumps(value, indent=2, sort_keys=True)
+            elif value is None:
+                display = "Not available"
+            else:
+                display = str(value)
+            table.setItem(row, 0, QTableWidgetItem(label))
+            table.setItem(row, 1, QTableWidgetItem(display))
+
+        table.resizeRowsToContents()
+        layout.addWidget(table, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.exec_()
 
     def _copy_raw_files(self):
         """Copy the modality's output into this session's raw folder."""
@@ -398,6 +471,7 @@ class AssessmentRunner(QDialog):
             # Preserve the run log alongside the data.
             with open(os.path.join(run_dir, "run_log.txt"), "w") as f:
                 f.write(self.log.toPlainText())
+            self._cleanup_staging()
             return run_dir
         except OSError as e:
             QMessageBox.warning(self, "Storage error",
@@ -430,18 +504,30 @@ class AssessmentRunner(QDialog):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
+            self._cleanup_staging()
             self.reject()
 
     def _retry(self):
+        self._cleanup_staging()
         self.status = "aborted"
         self.exit_code = None
         self.stack.setCurrentIndex(PHASE_PREPARE)
+
+    def _cleanup_staging(self):
+        if self.run_output_dir and os.path.isdir(self.run_output_dir):
+            try:
+                shutil.rmtree(self.run_output_dir)
+            except OSError:
+                pass
+        self.run_output_dir = None
 
     # -- cleanup -------------------------------------------------------
 
     def closeEvent(self, event):
         self.elapsed_timer.stop()
         self._kill_process()
+        if self.saved_run_id is None:
+            self._cleanup_staging()
         super().closeEvent(event)
 
     def keyPressEvent(self, event):

@@ -11,6 +11,8 @@ descriptive statistics; it does not classify, score or diagnose anything.
 
 import sys
 import traceback
+import json
+import os
 
 from . import config
 from . import results as results_mod
@@ -52,9 +54,19 @@ def main():
         # ---- output: always save whatever was collected ---------------
         if trials:
             summary = results_mod.summarise(trials)
-            csv_path = results_mod.save_results_csv(trials)
-            results_mod.save_raw_samples_csv(trials)
-            results_mod.save_summary_csv(summary)
+            output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                csv_path = results_mod.save_results_csv(
+                    trials, os.path.join(output_dir, "eye_results.csv"))
+                results_mod.save_raw_samples_csv(
+                    trials, os.path.join(output_dir, "eye_samples.csv"))
+                with open(os.path.join(output_dir, "eye_summary.json"), "w") as handle:
+                    json.dump(summary, handle, indent=2)
+            else:
+                csv_path = results_mod.save_results_csv(trials)
+                results_mod.save_raw_samples_csv(trials)
+                results_mod.save_summary_csv(summary)
             results_mod.print_summary(summary)
             if csv_path:
                 print("Results written to: %s" % csv_path)

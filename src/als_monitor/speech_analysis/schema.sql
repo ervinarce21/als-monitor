@@ -1,6 +1,4 @@
--- NEXA speech module - database schema (STEP 1: minimum longitudinal structure)
--- Full population/insert logic is implemented in database/database.py at STEP 13.
--- This file only defines the tables so the structure is fixed early.
+-- NEXA speech module longitudinal database schema.
 
 PRAGMA foreign_keys = ON;
 

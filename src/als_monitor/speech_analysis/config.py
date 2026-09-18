@@ -62,7 +62,7 @@ DEFAULT_PASSAGE_PATH = PASSAGES_DIR / "rainbow_passage.txt"
 DEFAULT_PASSAGE_METADATA_PATH = PASSAGES_DIR / "rainbow_passage_metadata.json"
 
 # =====================================================================
-# VOICE ACTIVITY DETECTION / SEGMENTATION  (implemented in STEP 5)
+# VOICE ACTIVITY DETECTION / SEGMENTATION
 # =====================================================================
 # Research parameter, not a clinical cutoff - validate for your task/population.
 PAUSE_THRESHOLD_SECONDS = 0.300
@@ -72,7 +72,7 @@ VAD_FRAME_DURATION_MS = 30           # 10/20/30 ms required by WebRTC VAD
 VAD_AGGRESSIVENESS = 2               # WebRTC VAD: 0 (least) - 3 (most aggressive)
 
 # =====================================================================
-# F0 ANALYSIS (Praat/Parselmouth)  (implemented in STEP 6)
+# F0 ANALYSIS (autocorrelation estimate)
 # =====================================================================
 F0_PITCH_FLOOR_HZ = 75.0
 F0_PITCH_CEILING_HZ = 500.0
@@ -80,7 +80,7 @@ F0_TIME_STEP = 0.0            # 0.0 = Praat default (= 0.75 / floor)
 F0_MIN_VALID_FRAME_PERCENT = 30.0   # below this, flag INVALID_F0
 
 # =====================================================================
-# HNR ANALYSIS (Praat/Parselmouth)  (implemented in STEP 7)
+# HNR ANALYSIS (autocorrelation estimate)
 # =====================================================================
 HNR_TIME_STEP = 0.01
 HNR_MIN_PITCH_HZ = 75.0
@@ -89,7 +89,7 @@ HNR_PERIODS_PER_WINDOW = 1.0
 HNR_MIN_VALID_FRAME_PERCENT = 30.0  # below this, flag INVALID_HNR
 
 # =====================================================================
-# AUDIO QUALITY CONTROL  (implemented in STEP 4)
+# AUDIO QUALITY CONTROL
 # =====================================================================
 QC_MIN_DURATION_SECONDS = 1.0
 QC_MIN_RMS_DBFS = -45.0        # quieter than this -> TOO_QUIET

@@ -10,6 +10,7 @@ This file only says WHERE those programs are and WHAT files they produce.
 """
 
 import os
+import sys
 
 # ---------------------------------------------------------------------------
 # DISPLAY (7" Waveshare HDMI touchscreen)
@@ -32,7 +33,7 @@ RAW_DATA_DIR = os.path.join(DATA_DIR, "raw")       # per-session raw modality ou
 REPORT_DIR = os.path.join(DATA_DIR, "reports")
 
 # Python interpreter used to launch modality scripts
-PYTHON_BIN = "python3"
+PYTHON_BIN = sys.executable
 
 # ---------------------------------------------------------------------------
 # MODALITY SCRIPT LOCATIONS
@@ -40,12 +41,15 @@ PYTHON_BIN = "python3"
 # A path that does not exist is reported as "not configured" in System Check;
 # it will not crash the UI.
 # ---------------------------------------------------------------------------
-MODALITY_PATHS = {
-    "grip":       os.path.join(NEXA_ROOT, "grip", "main.py"),
-    "oculomotor": os.path.join(NEXA_ROOT, "vision", "oculomotor", "main.py"),
-    "motor":      os.path.join(NEXA_ROOT, "vision", "motor", "main.py"),
-    "speech":     os.path.join(NEXA_ROOT, "speech", "main.py"),
+MODALITY_MODULES = {
+    "grip": "als_monitor.grip_monitor",
+    "oculomotor": "als_monitor.eye_tracker",
+    "motor": "als_monitor.shoulder_monitor",
+    "speech": "als_monitor.speech_analysis",
 }
+
+SOURCE_DIR = os.path.join(NEXA_ROOT, "src")
+RUN_STAGING_DIR = os.path.join(DATA_DIR, "staging")
 
 # Hardware devices checked on the System Check screen.
 DEVICE_CHECKS = {
@@ -72,5 +76,5 @@ RESEARCH_NOTICE = (
 
 
 def ensure_dirs():
-    for d in (DATA_DIR, RAW_DATA_DIR, REPORT_DIR):
+    for d in (DATA_DIR, RAW_DATA_DIR, REPORT_DIR, RUN_STAGING_DIR):
         os.makedirs(d, exist_ok=True)

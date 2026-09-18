@@ -90,7 +90,7 @@ class Modality:
         self.key = key
         self.name = name
         self.subtitle = subtitle
-        self.output_files = output_files      # filenames the existing script writes
+        self.output_files = output_files
         self.metrics = metrics
         self.operator_checklist = operator_checklist
         self.patient_instruction = patient_instruction
@@ -102,28 +102,31 @@ class Modality:
 
     @property
     def script_path(self):
-        return config.MODALITY_PATHS.get(self.key, "")
+        return config.MODALITY_MODULES.get(self.key, "")
 
     @property
     def working_dir(self):
-        p = self.script_path
-        return os.path.dirname(p) if p else config.NEXA_ROOT
+        return config.NEXA_ROOT
 
     def is_available(self):
-        p = self.script_path
-        return bool(p) and os.path.isfile(p)
+        module = self.script_path
+        if not module or not os.path.isdir(config.SOURCE_DIR):
+            return False
+        package_path = os.path.join(config.SOURCE_DIR, *module.split("."))
+        return os.path.isfile(os.path.join(package_path, "__main__.py"))
 
     def build_command(self):
         """Command list to hand to QProcess. The existing script is run as-is."""
-        return [config.PYTHON_BIN, self.script_path] + list(self.args)
+        return [config.PYTHON_BIN, "-m", self.script_path] + list(self.args)
 
     # -- result reading -------------------------------------------------------
 
-    def collect_output_files(self):
+    def collect_output_files(self, output_dir=None):
         """Absolute paths of result files that actually exist after a run."""
         found = []
+        base = output_dir or self.working_dir
         for fname in self.output_files:
-            candidate = os.path.join(self.working_dir, fname)
+            candidate = os.path.join(base, fname)
             if os.path.isfile(candidate):
                 found.append(candidate)
         return found
@@ -181,13 +184,11 @@ GRIP = Modality(
     key="grip",
     name="Grip Strength",
     subtitle="Dual load cell — maximal force and short-duration grip-force consistency",
-    output_files=["grip_results.csv", "grip_summary.json"],
+    output_files=["grip_summary.json"],
     metrics=[
-        Metric("peak_left",  "Peak force (L)", "peak_force_left_kg", "max", "kg", 2),
-        Metric("peak_right", "Peak force (R)", "peak_force_right_kg", "max", "kg", 2),
-        Metric("mean_left",  "Mean force (L)", "mean_force_left_kg", "mean", "kg", 2),
-        Metric("mean_right", "Mean force (R)", "mean_force_right_kg", "mean", "kg", 2),
-        Metric("trials",     "Trials recorded", "trial", "count", "", 0),
+        Metric("peak_left", "Peak force (L)", "peak_left", "last", "N", 2),
+        Metric("peak_right", "Peak force (R)", "peak_right", "last", "N", 2),
+        Metric("duration", "Duration", "duration", "last", "s", 1),
     ],
     operator_checklist=[
         "Arduino Uno connected and enumerated (see System Check).",
@@ -207,14 +208,14 @@ OCULOMOTOR = Modality(
     key="oculomotor",
     name="Oculomotor",
     subtitle="Visually guided prosaccade latency (OV9281 IR camera)",
-    output_files=["nexa_prosaccade_results.csv"],
+    output_files=["eye_results.csv", "eye_summary.json"],
     metrics=[
         Metric("valid_trials", "Valid trials", "valid", "sum", "", 0),
-        Metric("mean_latency", "Mean latency", "prosaccade_latency_ms", "mean",
+        Metric("mean_latency_ms", "Mean latency", "prosaccade_latency_ms", "mean",
                "ms", 1, valid_column="valid"),
-        Metric("sd_latency", "SD", "prosaccade_latency_ms", "sd",
+        Metric("sd_latency_ms", "SD", "prosaccade_latency_ms", "sd",
                "ms", 1, valid_column="valid"),
-        Metric("cv_latency", "CV", "prosaccade_latency_ms", "cv",
+        Metric("cv_percent", "CV", "prosaccade_latency_ms", "cv",
                "%", 1, valid_column="valid"),
     ],
     operator_checklist=[
@@ -235,12 +236,9 @@ MOTOR = Modality(
     key="motor",
     name="Motor / Movement",
     subtitle="Camera-based movement analysis (USB webcam)",
-    output_files=["motor_results.csv", "motor_summary.json"],
+    output_files=["shoulder_summary.json"],
     metrics=[
-        Metric("repetitions", "Repetitions", "repetition", "count", "", 0),
-        Metric("mean_cycle", "Mean cycle time", "cycle_time_ms", "mean", "ms", 1),
-        Metric("sd_cycle", "SD cycle time", "cycle_time_ms", "sd", "ms", 1),
-        Metric("cv_cycle", "CV", "cycle_time_ms", "cv", "%", 1),
+        Metric("peak_velocity", "Peak angular velocity", "peak_velocity", "last", "deg/s", 1),
     ],
     operator_checklist=[
         "USB webcam connected and framing the full movement.",
@@ -260,12 +258,13 @@ SPEECH = Modality(
     key="speech",
     name="Speech",
     subtitle="Microphone-based speech analysis (USB conference mic)",
-    output_files=["speech_results.csv", "speech_summary.json"],
+    output_files=["speech_recording.wav", "speech_summary.json"],
     metrics=[
-        Metric("duration", "Recording length", "duration_s", "last", "s", 1),
-        Metric("syllable_rate", "Syllable rate", "syllables_per_s", "mean", "/s", 2),
-        Metric("mean_intensity", "Mean intensity", "mean_intensity_db", "mean", "dB", 1),
-        Metric("pause_ratio", "Pause ratio", "pause_ratio", "mean", "", 3),
+        Metric("recording_duration_sec", "Recording length", "recording_duration_sec", "last", "s", 1),
+        Metric("speech_duration_sec", "Speech duration", "speech_duration_sec", "last", "s", 1),
+        Metric("pause_percentage", "Pause percentage", "pause_percentage", "last", "%", 1),
+        Metric("mean_f0_hz", "Mean F0", "mean_f0_hz", "last", "Hz", 1),
+        Metric("hnr_db", "HNR", "hnr_db", "last", "dB", 1),
     ],
     operator_checklist=[
         "USB microphone connected and selected as the input device.",
@@ -278,7 +277,8 @@ SPEECH = Modality(
         "Follow the spoken task instruction. Speak clearly at a comfortable "
         "volume and keep going until you are told to stop."
     ),
-    est_duration_s=60,
+    args=["assess", "--duration", "10"],
+    est_duration_s=20,
 )
 
 REGISTRY = [GRIP, OCULOMOTOR, MOTOR, SPEECH]

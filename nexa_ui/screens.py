@@ -5,6 +5,7 @@ Home, Participants, Session (assessment control panel), History, and
 System Check. Each screen is a QWidget swapped into the main window's stack.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -34,6 +35,45 @@ def card(title=None):
         lbl.setObjectName("H2")
         layout.addWidget(lbl)
     return frame, layout
+
+
+def show_metrics_dialog(parent, title, metrics):
+    """Display all stored metrics for a completed modality run."""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(f"{title} analysis details")
+    dialog.resize(min(760, config.SCREEN_WIDTH - 40),
+                  min(520, config.SCREEN_HEIGHT - 40))
+    layout = QVBoxLayout(dialog)
+
+    heading = QLabel("Analysis details")
+    heading.setObjectName("H2")
+    layout.addWidget(heading)
+
+    table = QTableWidget(len(metrics), 2, dialog)
+    table.setHorizontalHeaderLabels(["Measurement", "Value"])
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+    table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+    for row, (key, value) in enumerate(sorted(metrics.items())):
+        label = key.replace("_", " ").strip().title()
+        if isinstance(value, (dict, list, tuple)):
+            display = json.dumps(value, indent=2, sort_keys=True)
+        elif value is None:
+            display = "Not available"
+        else:
+            display = str(value)
+        table.setItem(row, 0, QTableWidgetItem(label))
+        table.setItem(row, 1, QTableWidgetItem(display))
+    table.resizeRowsToContents()
+    layout.addWidget(table, 1)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Close)
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+    dialog.exec_()
 
 
 # ===========================================================================
@@ -256,6 +296,7 @@ class ParticipantsScreen(QWidget):
 
 class ModalityTile(QFrame):
     run_requested = pyqtSignal(str)
+    details_requested = pyqtSignal(str)
 
     def __init__(self, modality):
         super().__init__()
@@ -284,11 +325,20 @@ class ModalityTile(QFrame):
 
         layout.addStretch()
 
+        button_row = QHBoxLayout()
+        self.details_btn = QPushButton("Show details")
+        self.details_btn.setMinimumHeight(config.TOUCH_MIN_BUTTON_HEIGHT)
+        self.details_btn.setVisible(False)
+        self.details_btn.clicked.connect(
+            lambda: self.details_requested.emit(modality.key))
+        button_row.addWidget(self.details_btn)
+
         self.run_btn = QPushButton("Run assessment")
         self.run_btn.setObjectName("Primary")
         self.run_btn.setMinimumHeight(config.TOUCH_MIN_BUTTON_HEIGHT)
         self.run_btn.clicked.connect(lambda: self.run_requested.emit(modality.key))
-        layout.addWidget(self.run_btn)
+        button_row.addWidget(self.run_btn, 1)
+        layout.addLayout(button_row)
 
         if not modality.is_available():
             self.run_btn.setEnabled(False)
@@ -306,6 +356,7 @@ class ModalityTile(QFrame):
         text = "   ".join(f"{label}: {value}" for label, value in metrics_pairs
                           if value != "—")
         self.summary_label.setText(text or "No metrics read")
+        self.details_btn.setVisible(True)
         self.run_btn.setText("Run again")
 
 
@@ -349,6 +400,7 @@ class SessionScreen(QWidget):
         for i, modality in enumerate(modalities.REGISTRY):
             tile = ModalityTile(modality)
             tile.run_requested.connect(self._run_modality)
+            tile.details_requested.connect(self._show_modality_details)
             self.tiles[modality.key] = tile
             self.grid.addWidget(tile, i // 2, i % 2)
 
@@ -395,6 +447,15 @@ class SessionScreen(QWidget):
         dlg = AssessmentRunner(modality, self.db, self.session_id, self)
         dlg.exec_()
         self.refresh()
+
+    def _show_modality_details(self, key):
+        if self.session_id is None:
+            return
+        run = self.db.latest_run_for_modality(self.session_id, key)
+        modality = modalities.get(key)
+        if run is None or modality is None:
+            return
+        show_metrics_dialog(self, modality.name, self.db.run_metrics(run))
 
     def _generate_report(self):
         if self.session_id is None:

@@ -76,6 +76,10 @@ case "$service" in
         exec python3 -m als_monitor.shoulder_monitor "$@"
         ;;
     speech|speech-analysis)
+        echo "Starting NEXA speech analysis..."
+        if [[ $# -eq 0 ]]; then
+            exec python3 -m als_monitor.speech_analysis menu
+        fi
         exec python3 -m als_monitor.speech_analysis "$@"
         ;;
     help|-h|--help)

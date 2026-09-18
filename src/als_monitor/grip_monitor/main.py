@@ -1,6 +1,8 @@
 """Live two-channel grip-force monitor for an ESP32 serial source."""
 
 import collections
+import json
+import os
 import threading
 import time
 
@@ -172,6 +174,17 @@ def main():
         if session["started_at"] is not None:
             elapsed = time.monotonic() - session["started_at"]
             print("Session duration: %s" % format_duration(elapsed))
+        else:
+            elapsed = 0.0
+        output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            with open(os.path.join(output_dir, "grip_summary.json"), "w") as handle:
+                json.dump({
+                    "peak_left": session["left_max"],
+                    "peak_right": session["right_max"],
+                    "duration": elapsed,
+                }, handle, indent=2)
     return 0
 
 

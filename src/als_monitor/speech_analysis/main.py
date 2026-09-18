@@ -2,18 +2,23 @@
 """
 NEXA speech-analysis module - command-line entry point.
 
-The interactive menu exposes the currently functional microphone discovery
-and database setup actions. Planned analysis commands remain available through
-argparse and clearly report that they are not implemented yet.
+Provides interactive and direct commands for microphone discovery, recording,
+acoustic analysis, result storage, and longitudinal baseline comparison.
 """
 
 import argparse
+import json
+import os
 import shutil
 import sqlite3
 import subprocess
 import sys
+import wave
+from datetime import datetime
+from pathlib import Path
 
 from . import config
+from .analysis import analyze_wav
 
 
 def _list_microphones_with_arecord(reason):
@@ -91,12 +96,182 @@ def cmd_init_db(_args):
     return 0
 
 
-def _not_yet_implemented(command_name, step):
-    def handler(_args):
-        print("'%s' is not implemented yet (planned for STEP %d)."
-              % (command_name, step))
+def cmd_record(args):
+    """Record mono PCM16 audio from the configured microphone."""
+    try:
+        import sounddevice as sd
+    except Exception as exc:
+        print("ERROR: recording requires sounddevice: %s" % exc)
+        print("Install with: sudo apt install python3-sounddevice libportaudio2")
         return 1
+    task = args.task or config.TASK_CONNECTED_SPEECH
+    default_duration = (config.SUSTAINED_VOWEL_TARGET_SECONDS
+                        if task == config.TASK_SUSTAINED_VOWEL else 10.0)
+    duration = args.duration or default_duration
+    if duration <= 0 or duration > config.MAX_RECORDING_SECONDS:
+        print("ERROR: duration must be between 0 and %d seconds."
+              % config.MAX_RECORDING_SECONDS)
+        return 1
+    output = Path(args.out) if args.out else (
+        config.RECORDINGS_DIR /
+        ("%s_%s.wav" % (task, datetime.now().strftime("%Y%m%d_%H%M%S"))))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        print("Recording %.1f seconds..." % duration)
+        frames = int(duration * config.SAMPLE_RATE)
+        audio = sd.rec(frames, samplerate=config.SAMPLE_RATE,
+                       channels=config.CHANNELS, dtype="int16",
+                       device=config.MIC_DEVICE_INDEX)
+        sd.wait()
+        with wave.open(str(output), "wb") as wav:
+            wav.setnchannels(config.CHANNELS)
+            wav.setsampwidth(config.SAMPLE_WIDTH_BITS // 8)
+            wav.setframerate(config.SAMPLE_RATE)
+            wav.writeframes(audio.astype("<i2").tobytes())
+    except Exception as exc:
+        print("ERROR: recording failed: %s" % exc)
+        return 1
+    print("Recording saved: %s" % output)
+    return 0
+
+
+def cmd_assess(args):
+    """Record and immediately analyze one UI assessment."""
+    output_dir = Path(os.environ.get("NEXA_OUTPUT_DIR", config.RESULTS_DIR))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    wav_path = output_dir / "speech_recording.wav"
+    record_args = argparse.Namespace(
+        task=args.task, duration=args.duration, out=str(wav_path))
+    result = cmd_record(record_args)
+    if result:
+        return result
+    try:
+        metrics = analyze_wav(str(wav_path), args.task)
+    except (OSError, ValueError, wave.Error) as exc:
+        print("ERROR: could not analyze recording: %s" % exc)
+        return 1
+    participant = os.environ.get("NEXA_PARTICIPANT_ID", args.participant)
+    session_id = _store_analysis(
+        str(wav_path), args.task, metrics, participant,
+        args.session_id, args.baseline)
+    if session_id is None:
+        return 1
+    summary_path = output_dir / "speech_summary.json"
+    with open(summary_path, "w") as handle:
+        json.dump(metrics, handle, indent=2)
+    print("Analysis stored as session: %s" % session_id)
+    print("Summary written to: %s" % summary_path)
+    return 0
+
+
+def _store_analysis(wav_path, task, metrics, participant_id, session_id,
+                    is_baseline):
+    if cmd_init_db(None):
+        return None
+    participant_id = participant_id or config.PARTICIPANT_ID_DEFAULT
+    session_id = session_id or "%s_%s" % (
+        participant_id, datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+    with sqlite3.connect(config.DATABASE_PATH) as conn:
+        conn.execute("INSERT OR IGNORE INTO participant (participant_id) VALUES (?)",
+                     (participant_id,))
+        conn.execute(
+            "INSERT INTO session (session_id, participant_id, is_baseline) "
+            "VALUES (?, ?, ?)",
+            (session_id, participant_id, 1 if is_baseline else 0))
+        conn.execute(
+            """INSERT INTO speech_assessment (
+                session_id, task_name, audio_filename, sample_rate_hz,
+                recording_duration_sec, speech_duration_sec,
+                pause_duration_sec, num_pauses, pause_percentage, mean_f0_hz,
+                hnr_db, quality_status, quality_flags, analysis_parameters,
+                software_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, task, str(wav_path), metrics["sample_rate_hz"],
+             metrics["recording_duration_sec"], metrics["speech_duration_sec"],
+             metrics["pause_duration_sec"], metrics["num_pauses"],
+             metrics["pause_percentage"], metrics["mean_f0_hz"],
+             metrics["hnr_db"], metrics["quality_status"],
+             json.dumps(metrics["quality_flags"]), json.dumps({
+                 "pitch_floor_hz": config.F0_PITCH_FLOOR_HZ,
+                 "pitch_ceiling_hz": config.F0_PITCH_CEILING_HZ,
+                 "pause_threshold_sec": config.PAUSE_THRESHOLD_SECONDS,
+             }), config.NEXA_SPEECH_MODULE_VERSION))
+    return session_id
+
+
+def _analysis_handler(task):
+    def handler(args):
+        try:
+            metrics = analyze_wav(args.wav_path, task)
+        except (OSError, ValueError, wave.Error) as exc:
+            print("ERROR: could not analyze WAV: %s" % exc)
+            return 1
+        print("\nSpeech analysis")
+        for key, value in metrics.items():
+            if key != "task":
+                print("  %-26s %s" % (key + ":", value))
+        session_id = _store_analysis(
+            args.wav_path, task, metrics, args.participant, args.session_id,
+            args.baseline)
+        if session_id is None:
+            return 1
+        print("Stored as session: %s" % session_id)
+        return 0
     return handler
+
+
+def cmd_show_results(_args):
+    if cmd_init_db(None):
+        return 1
+    with sqlite3.connect(config.DATABASE_PATH) as conn:
+        rows = conn.execute(
+            """SELECT s.session_id, s.participant_id, a.task_name,
+                      a.recording_duration_sec, a.mean_f0_hz, a.hnr_db,
+                      a.pause_percentage, a.quality_status
+               FROM speech_assessment a JOIN session s USING (session_id)
+               ORDER BY a.processed_at DESC LIMIT 50""").fetchall()
+    if not rows:
+        print("No speech results have been stored.")
+        return 0
+    for row in rows:
+        print(" | ".join("" if value is None else str(value) for value in row))
+    return 0
+
+
+def cmd_compare_baseline(args):
+    if cmd_init_db(None):
+        return 1
+    metrics = ("recording_duration_sec", "speech_duration_sec",
+               "pause_percentage", "mean_f0_hz", "hnr_db")
+    with sqlite3.connect(config.DATABASE_PATH) as conn:
+        baseline = conn.execute(
+            """SELECT a.recording_duration_sec, a.speech_duration_sec,
+                      a.pause_percentage, a.mean_f0_hz, a.hnr_db
+               FROM speech_assessment a JOIN session s USING (session_id)
+               WHERE s.participant_id=? AND s.is_baseline=1
+               ORDER BY s.session_datetime DESC LIMIT 1""",
+            (args.participant_id,)).fetchone()
+        current = conn.execute(
+            """SELECT recording_duration_sec, speech_duration_sec,
+                      pause_percentage, mean_f0_hz, hnr_db
+               FROM speech_assessment WHERE session_id=? LIMIT 1""",
+            (args.session_id,)).fetchone()
+    if baseline is None or current is None:
+        print("ERROR: baseline or requested session was not found.")
+        return 1
+    for name, base, value in zip(metrics, baseline, current):
+        change = None if base in (None, 0) or value is None else 100 * (value-base)/base
+        print("%-25s baseline=%s current=%s change=%s" %
+              (name, base, value, "n/a" if change is None else "%.1f%%" % change))
+    return 0
+
+
+def _add_analysis_options(parser):
+    parser.add_argument("wav_path")
+    parser.add_argument("--participant", default=config.PARTICIPANT_ID_DEFAULT)
+    parser.add_argument("--session-id", default=None)
+    parser.add_argument("--baseline", action="store_true",
+                        help="Mark this session as the participant baseline.")
 
 
 def _prompt_command_arguments(command):
@@ -232,52 +407,64 @@ def build_parser():
                    help="Create/upgrade the SQLite database from schema.sql.") \
         .set_defaults(func=cmd_init_db)
 
-    p = sub.add_parser("record", help="Record a WAV file (STEP 2).")
+    p = sub.add_parser("record", help="Record a mono PCM16 WAV file.")
     p.add_argument("--task", choices=[config.TASK_SUSTAINED_VOWEL,
                                       config.TASK_CONNECTED_SPEECH],
                   required=False)
     p.add_argument("--duration", type=float, default=None)
     p.add_argument("--out", type=str, default=None)
-    p.set_defaults(func=_not_yet_implemented("record", 2))
+    p.set_defaults(func=cmd_record)
 
-    p = sub.add_parser("analyze", help="Validate/analyze a WAV file (STEP 3).")
-    p.add_argument("wav_path")
-    p.set_defaults(func=_not_yet_implemented("analyze", 3))
+    p = sub.add_parser(
+        "assess", help="Record and analyze one speech assessment.")
+    p.add_argument("--task", choices=[config.TASK_SUSTAINED_VOWEL,
+                                      config.TASK_CONNECTED_SPEECH],
+                   default=config.TASK_CONNECTED_SPEECH)
+    p.add_argument("--duration", type=float, default=10.0)
+    p.add_argument("--participant", default=config.PARTICIPANT_ID_DEFAULT)
+    p.add_argument("--session-id", default=None)
+    p.add_argument("--baseline", action="store_true")
+    p.set_defaults(func=cmd_assess)
+
+    p = sub.add_parser("analyze", help="Validate and analyze a WAV file.")
+    _add_analysis_options(p)
+    p.set_defaults(func=_analysis_handler(config.TASK_CONNECTED_SPEECH))
 
     p = sub.add_parser("analyze-speech",
-                       help="Full 5-feature analysis of connected speech "
-                            "(STEP 12).")
-    p.add_argument("wav_path")
-    p.set_defaults(func=_not_yet_implemented("analyze-speech", 12))
+                       help="Analyze connected speech.")
+    _add_analysis_options(p)
+    p.set_defaults(func=_analysis_handler(config.TASK_CONNECTED_SPEECH))
 
     p = sub.add_parser("analyze-sustained-vowel",
-                       help="F0 + HNR analysis of a sustained /a/ (STEP 7).")
-    p.add_argument("wav_path")
-    p.set_defaults(func=_not_yet_implemented("analyze-sustained-vowel", 7))
+                       help="Analyze a sustained vowel, including F0 and HNR.")
+    _add_analysis_options(p)
+    p.set_defaults(func=_analysis_handler(config.TASK_SUSTAINED_VOWEL))
 
     p = sub.add_parser("analyze-reading",
-                       help="Timing analysis of a read passage (STEP 11).")
-    p.add_argument("wav_path")
-    p.set_defaults(func=_not_yet_implemented("analyze-reading", 11))
+                       help="Analyze timing in a read passage.")
+    _add_analysis_options(p)
+    p.set_defaults(func=_analysis_handler(config.TASK_CONNECTED_SPEECH))
 
-    sub.add_parser("show-results", help="Print stored results (STEP 13).") \
-        .set_defaults(func=_not_yet_implemented("show-results", 13))
+    sub.add_parser("show-results", help="Print stored results.") \
+        .set_defaults(func=cmd_show_results)
 
     p = sub.add_parser("compare-baseline",
-                       help="Compare a session against baseline (STEP 14).")
+                       help="Compare a session against participant baseline.")
     p.add_argument("participant_id")
     p.add_argument("session_id")
-    p.set_defaults(func=_not_yet_implemented("compare-baseline", 14))
+    p.set_defaults(func=cmd_compare_baseline)
 
     return parser
 
 
 def main(argv=None):
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args == ["menu"]:
+        return run_interactive_menu(parser)
+
+    args = parser.parse_args(raw_args)
     if not getattr(args, "command", None):
-        if sys.stdin.isatty():
-            return run_interactive_menu(parser)
         parser.print_help()
         return 0
     return args.func(args)

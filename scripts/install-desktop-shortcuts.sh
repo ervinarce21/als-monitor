@@ -23,6 +23,7 @@ create_shortcut() {
     local comment="$3"
     local icon="$4"
     local service="$5"
+    local terminal="${6:-true}"
     local destination="$DESKTOP_DIR/$filename"
 
     cat > "$destination" <<EOF
@@ -33,7 +34,7 @@ Name=$name
 Comment=$comment
 Exec=/usr/local/bin/als-monitor $service
 Icon=$icon
-Terminal=true
+Terminal=$terminal
 Categories=Science;Utility;
 StartupNotify=true
 EOF
@@ -47,6 +48,14 @@ EOF
 
     echo "Created: $destination"
 }
+
+create_shortcut \
+    "nexa-ui.desktop" \
+    "NEXA UI" \
+    "Run the complete ALS Monitor interface" \
+    "applications-science" \
+    "ui" \
+    "false"
 
 create_shortcut \
     "als-eye-tracker.desktop" \

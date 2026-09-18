@@ -1,6 +1,8 @@
 """Shoulder elevation and arm-raise velocity monitor."""
 
+import json
 import math
+import os
 import sqlite3
 import time
 
@@ -91,9 +93,16 @@ def _draw_overlay(frame, participant_id, arm_choice, state, angle,
 def main():
     init_db()
     print("NEXA UPPER-LIMB MOTION ANALYSIS MODULE")
-    participant_id = input("Enter Participant ID (e.g., NEXA-001): ").strip()
-    participant_id = participant_id or "NEXA-001"
-    arm_choice = input("Select arm to evaluate (RIGHT / LEFT): ").strip().upper()
+    integrated_run = bool(os.environ.get("NEXA_OUTPUT_DIR"))
+    if integrated_run:
+        participant_id = os.environ.get("NEXA_PARTICIPANT_ID", "NEXA-001")
+        arm_choice = os.environ.get("NEXA_EVALUATED_ARM", "RIGHT").upper()
+    else:
+        participant_id = input(
+            "Enter Participant ID (e.g., NEXA-001): ").strip()
+        participant_id = participant_id or "NEXA-001"
+        arm_choice = input(
+            "Select arm to evaluate (RIGHT / LEFT): ").strip().upper()
     if arm_choice not in ("RIGHT", "LEFT"):
         arm_choice = "RIGHT"
 
@@ -118,6 +127,7 @@ def main():
     start_time = 0.0
     trial_duration = 5.0
     peak_velocity = 0.0
+    finished_at = None
 
     try:
         while cap.isOpened():
@@ -167,7 +177,18 @@ def main():
                     else:
                         peak_velocity = max(velocity_buffer, default=0.0)
                     save_to_db(participant_id, arm_choice, peak_velocity)
+                    output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+                    if output_dir:
+                        os.makedirs(output_dir, exist_ok=True)
+                        with open(os.path.join(
+                                output_dir, "shoulder_summary.json"), "w") as handle:
+                            json.dump({
+                                "peak_velocity": peak_velocity,
+                                "evaluated_arm": arm_choice,
+                                "participant_id": participant_id,
+                            }, handle, indent=2)
                     state = "FINISHED"
+                    finished_at = current_time
 
             cv2.circle(frame, shoulder_pt, 10, (0, 0, 255), -1)
             cv2.circle(frame, wrist_pt, 10, (0, 255, 0), -1)
@@ -182,6 +203,15 @@ def main():
                 start_time = time.time()
                 state = "RECORDING"
             elif key == ord("q"):
+                break
+
+            # NEXA owns the workflow during an integrated run. Once the result
+            # is safely written, briefly show COMPLETE and return control to
+            # the NEXA review screen with a successful process exit.
+            if (integrated_run and state == "FINISHED" and
+                    finished_at is not None and
+                    current_time - finished_at >= 1.0):
+                print("[COMPLETE] Returning result to NEXA UI.")
                 break
     finally:
         cap.release()

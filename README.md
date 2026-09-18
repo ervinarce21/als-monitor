@@ -1,9 +1,9 @@
 # ALS Monitor
 
-Raspberry Pi services for eye tracking, grip-force monitoring, and shoulder
-movement monitoring.
+Monitoring services for eye tracking, grip force, shoulder movement, and
+speech analysis, with a shared NEXA user interface.
 
-## Install
+## Raspberry Pi setup
 
 From the Raspberry Pi terminal:
 
@@ -53,9 +53,128 @@ als-monitor speech
 Run `als-monitor` without an option to use an interactive menu. The launcher
 automatically finds the project, changes directory, and sets `PYTHONPATH`.
 
+## Windows setup
+
+### 1. Install Python
+
+Install Python 3 from [python.org](https://www.python.org/downloads/windows/).
+During installation, enable **Add Python to PATH**.
+
+Confirm that the Python launcher works:
+
+```powershell
+py -3 --version
+```
+
+### 2. Install dependencies
+
+Open PowerShell and install the Windows packages:
+
+```powershell
+py -3 -m pip install --upgrade pip
+py -3 -m pip install numpy opencv-python matplotlib pyserial sounddevice PyQt5 pygame
+```
+
+The Raspberry Pi-only `picamera2` package should not be installed on Windows.
+
+### 3. Open the project
+
+Change this path if the repository is stored elsewhere:
+
+```powershell
+Set-Location "C:\Users\Ervin\Documents\ALS Monitor"
+```
+
+### 4. Install the Windows launcher
+
+Run the installer once from the project directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-launcher.ps1
+```
+
+Open a new PowerShell or Command Prompt window so the updated user `PATH` is
+loaded. The launcher then works from any directory:
+
+```powershell
+als-monitor
+als-monitor ui
+als-monitor grip
+als-monitor shoulder
+als-monitor speech
+```
+
+Running `als-monitor` without a service opens the interactive menu.
+
+To run without installing the launcher:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\als-monitor.ps1 grip
+```
+
+### 5. Install desktop shortcuts
+
+Create native Windows shortcuts for NEXA UI and the monitoring services:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop-shortcuts.ps1
+```
+
+### Windows hardware notes
+
+- **Grip monitor:** Find the ESP32 port in Device Manager, then set
+  `SERIAL_PORT` in `src/als_monitor/grip_monitor/main.py` to a value such as
+  `COM3`.
+- **Shoulder monitor:** Connect a webcam recognized by Windows. The service
+  uses camera index `0` by default.
+- **Speech analysis:** Connect a microphone and run
+  `als-monitor speech list-microphones` before recording.
+- **Eye tracker:** The current eye-camera driver uses Raspberry Pi Picamera2.
+  Eye capture and preview are therefore unavailable on Windows.
+
+### Windows troubleshooting
+
+If `als-monitor` is not recognized, close and reopen the terminal. You can also
+rerun `install-launcher.ps1` after moving the project.
+
+If PowerShell blocks a script, use the provided one-command bypass:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\als-monitor.ps1 help
+```
+
+If Python reports a missing module, rerun the dependency installation with the
+same `py -3 -m pip` command shown above. This ensures packages are installed for
+the interpreter used by the launcher.
+
+Verify that the selected Python installation is healthy:
+
+```powershell
+py -3 -c "import sqlite3, numpy; print('Python OK')"
+```
+
+If Anaconda or another Python installation is broken, point ALS Monitor to a
+working interpreter:
+
+```powershell
+$env:ALS_MONITOR_PYTHON = "C:\Path\To\Python\python.exe"
+als-monitor speech
+```
+
+To persist that selection for future terminals:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    "ALS_MONITOR_PYTHON",
+    "C:\Path\To\Python\python.exe",
+    "User"
+)
+```
+
 ## Install desktop buttons
 
-Create clickable buttons for all three services with one command:
+Create a desktop shortcut for the complete NEXA interface, plus shortcuts for
+the individual monitoring services, with one command:
 
 ```bash
 bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-desktop-shortcuts.sh"
@@ -63,12 +182,14 @@ bash "$HOME/Documents/ALS Monitor/als-monitor/scripts/install-desktop-shortcuts.
 
 This adds the following buttons to the Raspberry Pi desktop:
 
+- `NEXA UI` (the complete application)
 - `ALS Eye Tracker`
 - `ALS Grip Monitor`
 - `ALS Shoulder Monitor`
 
-Each button opens a terminal and starts its service. If the desktop asks
-whether to launch the file, select **Execute**.
+Double-click `NEXA UI` to open the complete application. The individual service
+buttons open a terminal and start their service directly. If the desktop asks
+whether to launch a file, select **Execute**.
 
 ## Eye tracker
 
@@ -141,9 +262,8 @@ Open the interactive speech menu:
 als-monitor speech
 ```
 
-The menu includes microphone discovery, database setup, recording, all analysis
-commands, stored results, baseline comparison, help, and exit. Analysis stages
-that are still under development report their implementation status.
+The menu includes microphone discovery, database setup, recording, acoustic
+analysis, stored results, baseline comparison, help, and exit.
 
 List available microphones:
 
@@ -163,8 +283,24 @@ Show all available speech commands:
 als-monitor speech --help
 ```
 
-The speech module is currently a staged research prototype. Commands marked as
-future steps report that they are not yet implemented.
+Record and analyze audio directly:
+
+```bash
+als-monitor speech record --task sustained_vowel --duration 5
+als-monitor speech analyze-sustained-vowel path/to/recording.wav
+als-monitor speech analyze-speech path/to/recording.wav
+```
+
+Create a participant baseline and compare a later session:
+
+```bash
+als-monitor speech analyze-speech baseline.wav --participant P001 --baseline
+als-monitor speech analyze-speech followup.wav --participant P001 --session-id P001_FOLLOWUP
+als-monitor speech compare-baseline P001 P001_FOLLOWUP
+```
+
+This remains a research prototype. Its acoustic measurements are descriptive
+and are not validated diagnostic or clinical thresholds.
 
 ## Project structure
 
