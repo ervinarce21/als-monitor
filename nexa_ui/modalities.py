@@ -118,7 +118,7 @@ class Modality:
 
     def build_command(self):
         """Command list to hand to QProcess. The existing script is run as-is."""
-        return [config.modality_python(self.key), "-u", "-X", "faulthandler",
+        return [config.modality_python(self.key, self.args), "-u", "-X", "faulthandler",
                 "-m", self.script_path] + list(self.args)
 
     # -- result reading -------------------------------------------------------

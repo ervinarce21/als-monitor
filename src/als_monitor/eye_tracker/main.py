@@ -16,12 +16,13 @@ import os
 
 from . import config
 from . import results as results_mod
-from .camera import CameraError
+from .camera import CameraError, configure_camera
 from .prosaccade_test import AbortTest, ProsaccadeTest
 from .sampler import EyeSampler
 
 
-def main():
+def main(argv=None):
+    configure_camera(argv)
     sampler = EyeSampler(buffer_seconds=10.0, expected_fps=config.CAMERA_FPS)
     test = None
     trials = []
@@ -32,9 +33,11 @@ def main():
         sampler.start()
     except CameraError as exc:
         print("[fatal] %s" % exc)
+        sampler.stop()
         return 2
     except Exception as exc:
         print("[fatal] unexpected camera error: %s" % exc)
+        sampler.stop()
         return 2
 
     # ---- test ---------------------------------------------------------
@@ -54,6 +57,13 @@ def main():
         # ---- output: always save whatever was collected ---------------
         if trials:
             summary = results_mod.summarise(trials)
+            summary["camera_backend"] = config.CAMERA_BACKEND
+            summary["tracking_method"] = ("mediapipe_iris" if config.CAMERA_BACKEND == "webcam"
+                                          else "dark_pupil")
+            summary["camera_model"] = (config.CAMERA_MODEL if config.CAMERA_BACKEND == "csi"
+                                       else "webcam:%d" % config.WEBCAM_INDEX)
+            summary["timestamp_mode"] = ("receive_time" if config.CAMERA_BACKEND == "webcam"
+                                         else "sensor_with_receive_fallback")
             output_dir = os.environ.get("NEXA_OUTPUT_DIR")
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)

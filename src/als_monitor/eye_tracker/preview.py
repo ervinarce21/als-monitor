@@ -14,19 +14,24 @@ import time
 import cv2
 
 from . import config
-from .camera import CameraError, IRCamera
-from .pupil_tracker import PupilTracker
+from .camera import CameraError, create_camera, configure_camera
+from .face_tracker import create_tracker
 
 
-def main():
+def main(argv=None):
+    configure_camera(argv, module="als_monitor.eye_tracker.preview")
     config.DEBUG_PREVIEW = True
-    camera = IRCamera()
-    tracker = PupilTracker()
+    camera = create_camera()
+    tracker = None
 
     try:
+        tracker = create_tracker()
         camera.start()
-    except CameraError as exc:
+    except Exception as exc:
         print("[fatal] %s" % exc)
+        camera.stop()
+        if tracker is not None and hasattr(tracker, "close"):
+            tracker.close()
         return 2
 
     show_mask = False
@@ -39,7 +44,7 @@ def main():
                 timestamp, gray = camera.capture()
             except CameraError as exc:
                 print("[fatal] %s" % exc)
-                break
+                return 2
 
             sample = tracker.detect(gray, timestamp)
             now = time.perf_counter()
@@ -75,6 +80,8 @@ def main():
                 show_mask = not show_mask
     finally:
         camera.stop()
+        if tracker is not None and hasattr(tracker, "close"):
+            tracker.close()
         cv2.destroyAllWindows()
     return 0
 

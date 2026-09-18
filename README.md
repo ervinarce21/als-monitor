@@ -166,8 +166,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop-shortcuts.ps1
   uses camera index `0` by default.
 - **Speech analysis:** Connect a microphone and run
   `nexa speech list-microphones` before recording.
-- **Eye tracker:** The current eye-camera driver uses Raspberry Pi Picamera2.
-  Eye capture and preview are therefore unavailable on Windows.
+- **Eye tracker:** CSI mode requires Raspberry Pi Picamera2. Webcam mode uses
+  OpenCV and MediaPipe and is available on Windows; see Webcam with MediaPipe.
 
 ### Windows troubleshooting
 
@@ -229,6 +229,40 @@ buttons open a terminal and start their service directly. If the desktop asks
 whether to launch a file, select **Execute**.
 
 ## Eye tracker
+
+### Webcam with MediaPipe
+
+CSI remains the default. Webcam mode uses the default OpenCV camera (index 0),
+MediaPipe Face Landmarker iris coordinates, and the working `.venv-shoulder`
+environment when available. No camera-index prompt is shown in the UI. On a
+laptop, the default camera may be built-in rather than USB; the optional
+`--webcam-index 1` command-line override remains available.
+
+On the Pi, set up the face model and pygame once, without upgrading MediaPipe:
+
+```bash
+cd "$HOME/Documents/ALS Monitor/als-monitor"
+bash scripts/setup-eye-webcam.sh
+nexa preview --camera webcam
+nexa eye --camera webcam
+```
+
+In NEXA UI, select Oculomotor, then Webcam. Keep the full face visible and the
+head still. CSI uses the original dark-pupil tracker; webcam uses the iris model.
+Webcam coordinates are image pixels, not calibrated screen gaze. Receive-time
+timestamps include USB/driver delay, and head movement affects measurements.
+Low capture/inference rates may invalidate trials under the existing quality
+checks; do not compare webcam latency directly with CSI baselines. Accepted iris
+confidence is a binary indicator, not a model probability. Camera backend and
+tracking method are stored in the summary.
+
+The face model is `data/models/face_landmarker.task`; `NEXA_FACE_MODEL` overrides
+its path. Unlike CSI, webcam capture can run on Windows with OpenCV, MediaPipe,
+pygame, and that model. A `.venv-shoulder` environment is reused if present;
+otherwise the current interpreter is used. See the setup script for the official
+model download URL. The existing ABOUT/PDF describe the prior CSI-only version.
+
+Use `nexa preview --camera csi` or `nexa eye --camera csi` for the original path.
 
 Check the camera first:
 

@@ -42,9 +42,12 @@ REPORT_DIR = os.path.join(DATA_DIR, "reports")
 PYTHON_BIN = sys.executable
 
 
-def modality_python(key):
+def modality_python(key, args=()):
     """Keep the Pi-compatible pose runtime separate from the UI runtime."""
-    if key == "motor":
+    webcam = any(value == "--camera=webcam" or
+                 (value == "--camera" and index + 1 < len(args) and args[index + 1] == "webcam")
+                 for index, value in enumerate(args))
+    if key == "motor" or (key == "oculomotor" and webcam):
         relative = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
         shoulder_python = os.path.join(NEXA_ROOT, ".venv-shoulder", *relative)
         if os.path.isfile(shoulder_python) and os.access(shoulder_python, os.X_OK):

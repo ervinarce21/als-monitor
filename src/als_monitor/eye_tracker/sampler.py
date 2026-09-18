@@ -8,16 +8,16 @@ presentation timing is not delayed by image processing.
 import threading
 from collections import deque
 
-from .camera import CameraError, IRCamera
-from .pupil_tracker import PupilTracker
+from .camera import CameraError, create_camera
+from .face_tracker import create_tracker
 
 
 class EyeSampler:
     """Continuously produces timestamped PupilSample objects."""
 
     def __init__(self, buffer_seconds=10.0, expected_fps=120):
-        self.camera = IRCamera()
-        self.tracker = PupilTracker()
+        self.camera = create_camera()
+        self.tracker = None
         maxlen = max(600, int(buffer_seconds * expected_fps))
         self._samples = deque(maxlen=maxlen)
         self._lock = threading.Lock()
@@ -31,6 +31,7 @@ class EyeSampler:
 
     # ------------------------------------------------------------------
     def start(self):
+        self.tracker = create_tracker()
         self.camera.start()          # raises CameraError - handled by caller
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -47,7 +48,11 @@ class EyeSampler:
                 self.error = exc
                 break
 
-            sample = self.tracker.detect(gray, timestamp)
+            try:
+                sample = self.tracker.detect(gray, timestamp)
+            except Exception as exc:
+                self.error = exc
+                break
             self.frames_captured += 1
             if not sample.found:
                 self.frames_dropped += 1
@@ -83,5 +88,11 @@ class EyeSampler:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-            self._thread = None
+            if not self._thread.is_alive():
+                self._thread = None
         self.camera.stop()
+        if self.tracker is not None and (self._thread is None or not self._thread.is_alive()):
+            close = getattr(self.tracker, "close", None)
+            if close:
+                close()
+            self.tracker = None

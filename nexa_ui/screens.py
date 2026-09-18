@@ -6,6 +6,7 @@ System Check. Each screen is a QWidget swapped into the main window's stack.
 """
 
 import json
+import copy
 import os
 import shutil
 import subprocess
@@ -678,6 +679,24 @@ class SessionScreen(QWidget):
             modality = self._choose_speech_assessment()
             if modality is None:
                 return
+        if key == "oculomotor":
+            choice, accepted = QInputDialog.getItem(
+                self, "Eye tracking camera", "Camera",
+                ["CSI camera (default)", "Webcam"], 0, False)
+            if not accepted:
+                return
+            backend = "webcam" if choice == "Webcam" else "csi"
+            index = 0
+            modality = copy.copy(modality)
+            modality.args = ["--camera", backend, "--webcam-index", str(index)]
+            modality.subtitle = "Prosaccade latency (%s)" % choice
+            modality.operator_checklist = list(modality.operator_checklist)
+            modality.operator_checklist[0] = (
+                "%s aimed at one eye; pupil clearly visible in frame." % choice)
+            if backend == "webcam":
+                modality.operator_checklist[0] = "Default webcam connected; full face and both eyes visible."
+                modality.operator_checklist.append(
+                    "Webcam timing is approximate; low frame rates can invalidate trials.")
         analyze_existing = (
             key == "speech"
             and bool(modality.args)

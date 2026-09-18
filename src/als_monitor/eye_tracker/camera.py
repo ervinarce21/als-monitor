@@ -1,11 +1,15 @@
 """
-OV9281 / Raspberry Pi camera access (Picamera2 + libcamera).
+CSI (Picamera2) and webcam (OpenCV) access.
 
 Returns grayscale frames with a monotonic timestamp on the SAME clock as
 time.perf_counter(), so frame times and target-onset times are comparable.
 """
 
 import time
+import argparse
+import os
+import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -22,6 +26,89 @@ from . import config
 
 class CameraError(RuntimeError):
     """Raised for any camera initialisation or capture failure."""
+
+
+def configure_camera(argv=None, module="als_monitor.eye_tracker"):
+    parser = argparse.ArgumentParser(description="NEXA eye camera options")
+    parser.add_argument("--camera", choices=("csi", "webcam"),
+                        default=config.CAMERA_BACKEND)
+    parser.add_argument("--webcam-index", type=int, default=config.WEBCAM_INDEX)
+    args = parser.parse_args(argv)
+    if args.webcam_index < 0:
+        parser.error("--webcam-index must be nonnegative")
+    if args.camera == "webcam":
+        root = Path(__file__).resolve().parents[3]
+        executable = root / ".venv-shoulder" / (
+            "Scripts/python.exe" if os.name == "nt" else "bin/python")
+        if executable.is_file() and os.path.normcase(os.path.abspath(sys.executable)) != os.path.normcase(str(executable)):
+            print("[camera] Using MediaPipe environment: %s" % executable, flush=True)
+            os.execv(str(executable), [str(executable), "-u", "-X", "faulthandler",
+                                     "-m", module, "--camera", "webcam",
+                                     "--webcam-index", str(args.webcam_index)])
+    config.CAMERA_BACKEND = args.camera
+    config.WEBCAM_INDEX = args.webcam_index
+
+
+def create_camera():
+    if config.CAMERA_BACKEND == "csi":
+        return IRCamera()
+    if config.CAMERA_BACKEND == "webcam":
+        return WebcamCamera()
+    raise CameraError("Unknown camera backend: %s" % config.CAMERA_BACKEND)
+
+
+class WebcamCamera:
+    """OpenCV capture; timestamps describe frame receipt, not sensor exposure."""
+
+    def __init__(self):
+        self.cap = None
+        self.width = config.CAMERA_WIDTH
+        self.height = config.CAMERA_HEIGHT
+
+    def start(self):
+        import cv2
+        try:
+            self.cap = cv2.VideoCapture(config.WEBCAM_INDEX)
+            if not self.cap.isOpened():
+                raise CameraError("Could not open webcam index %d. Check connection, "
+                                  "camera permissions, and other camera applications."
+                                  % config.WEBCAM_INDEX)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            self.cap.set(cv2.CAP_PROP_FPS, config.CAMERA_FPS)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            print("[camera] Webcam index %d; reported FPS %.1f. "
+                  "Receive-time timestamps include camera/driver buffering; "
+                  "low frame rates may invalidate trials."
+                  % (config.WEBCAM_INDEX, self.cap.get(cv2.CAP_PROP_FPS)), flush=True)
+            time.sleep(config.CAMERA_WARMUP_S)
+        except Exception as exc:
+            self.stop()
+            raise CameraError("Webcam initialization failed: %s" % exc) from exc
+
+    def capture(self):
+        import cv2
+        if self.cap is None:
+            raise CameraError("capture() called before start()")
+        try:
+            ok, frame = self.cap.read()
+            timestamp = time.perf_counter()
+            if not ok or frame is None or frame.size == 0:
+                raise CameraError("Webcam returned no frame")
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+            if config.CAMERA_HFLIP:
+                gray = cv2.flip(gray, 1)
+            if config.CAMERA_VFLIP:
+                gray = cv2.flip(gray, 0)
+            self.height, self.width = gray.shape
+            return timestamp, np.ascontiguousarray(gray)
+        except Exception as exc:
+            raise CameraError("Webcam capture failed: %s" % exc) from exc
+
+    def stop(self):
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
 
 
 def _select_camera(cameras, model):
