@@ -350,3 +350,47 @@ src/als_monitor/
 ```
 
 This project is a measurement prototype and is not a diagnostic medical device.
+
+That confirms the issue: **your installed MediaPipe 1.0.1 binary requires AES instructions that your Pi’s processor does not provide.** Installing more `apt` packages will not fix that binary.
+
+Try an isolated **Python 3.12 + MediaPipe 0.10.14** environment. That release provides a Python 3.12 ARM64 wheel, although we still need to test it on your Pi. Leave your existing `.venv` intact. [MediaPipe release files](https://pypi.org/project/mediapipe/0.10.14/#files)
+
+### 1. Create a separate shoulder environment
+
+Run on the Pi:
+
+```bash
+cd "$HOME/Documents/ALS Monitor/als-monitor"
+
+# Install uv into your existing environment to manage a separate Python.
+.venv/bin/python -m pip install uv
+
+.venv/bin/uv python install 3.12
+.venv/bin/uv venv --python 3.12 .venv-shoulder
+
+.venv/bin/uv pip install --python .venv-shoulder/bin/python \
+  "numpy<2" "opencv-contrib-python<4.12" \
+  "mediapipe==0.10.14" matplotlib
+```
+
+`uv` installs the additional Python without replacing Debian’s system Python. [Python installation documentation](https://docs.astral.sh/uv/guides/install-python/)
+
+### 2. Test actual pose initialization
+
+An import alone is not sufficient, because your crash occurs when creating the detector:
+
+```bash
+PYTHONPATH="$PWD/src" .venv-shoulder/bin/python -u -X faulthandler -c \
+'from als_monitor.shoulder_monitor.pose import ShoulderPose; p = ShoulderPose(); print("Pose initialization OK", flush=True); p.close()'
+```
+
+### 3. Run shoulder monitoring
+
+If the test succeeds, run this from the Pi’s desktop terminal:
+
+```bash
+PYTHONPATH="$PWD/src" .venv-shoulder/bin/python -u -X faulthandler \
+  -m als_monitor.shoulder_monitor
+```
+
+**For now, use this direct command:** `nexa` still uses your original `.venv`. If initialization fails, share its output before we change the launcher.
