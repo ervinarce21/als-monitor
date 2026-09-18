@@ -6,6 +6,7 @@ import math
 import os
 import threading
 import time
+from pathlib import Path
 
 import matplotlib
 
@@ -95,6 +96,26 @@ def read_serial_data(timestamps, left_data, right_data, session, data_lock,
 
 
 def main():
+    calibration_path = (Path(__file__).resolve().parents[3] /
+                        "nexa_data" / "grip_calibration.json")
+    if calibration_path.exists():
+        try:
+            with calibration_path.open(encoding="utf-8") as handle:
+                saved = json.load(handle)
+            for side in ("left", "right"):
+                values = saved[side]
+                for key in ("zero_counts", "delta_counts", "mass_kg", "polarity"):
+                    if not math.isfinite(float(values[key])):
+                        raise ValueError("Non-finite calibration value")
+                    values[key] = float(values[key])
+                if (values["delta_counts"] == 0 or values["mass_kg"] <= 0
+                        or values["polarity"] not in (-1, 1)):
+                    raise ValueError("Invalid calibration scale")
+            CALIBRATION.update(saved)
+            print("Loaded grip calibration: %s" % calibration_path)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print("ERROR: invalid saved grip calibration: %s" % exc)
+            return 1
     timestamps = collections.deque()
     left_data = collections.deque()
     right_data = collections.deque()

@@ -953,6 +953,10 @@ def _detect_microphone():
                 "Audio detection unavailable (install sounddevice)", False)
 
 class SystemCheckScreen(QWidget):
+    def _calibrate_grips(self):
+        from grip_calibration import GripCalibrationDialog
+        GripCalibrationDialog(self).exec_()
+
     def __init__(self, db):
         super().__init__()
         self.db = db
@@ -965,6 +969,9 @@ class SystemCheckScreen(QWidget):
         title.setObjectName("H1")
         header.addWidget(title)
         header.addStretch()
+        calibrate_btn = QPushButton("Calibrate grips")
+        calibrate_btn.clicked.connect(self._calibrate_grips)
+        header.addWidget(calibrate_btn)
         refresh_btn = QPushButton("Re-check")
         refresh_btn.clicked.connect(self.refresh)
         header.addWidget(refresh_btn)
