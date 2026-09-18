@@ -34,7 +34,7 @@ PHASE_PREPARE, PHASE_RUNNING, PHASE_REVIEW = 0, 1, 2
 
 
 class AssessmentRunner(QDialog):
-    def __init__(self, modality, db, session_id, parent=None):
+    def __init__(self, modality, db, session_id, parent=None, auto_start=False):
         super().__init__(parent)
         self.modality = modality
         self.db = db
@@ -62,6 +62,8 @@ class AssessmentRunner(QDialog):
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(200)
         self.elapsed_timer.timeout.connect(self._tick)
+        if auto_start:
+            QTimer.singleShot(0, self._start_run)
 
     # -- UI construction -------------------------------------------------------
 
@@ -172,7 +174,9 @@ class AssessmentRunner(QDialog):
         sl = QHBoxLayout(status_card)
         self.running_label = QLabel("Assessment running…")
         self.running_label.setObjectName("H2")
-        self.elapsed_label = QLabel("0.0 s")
+        self.elapsed_label = QLabel(
+            f"0.0 s / {self.modality.est_duration_s:g} s"
+        )
         self.elapsed_label.setObjectName("Metric")
         sl.addWidget(self.running_label)
         sl.addStretch()
@@ -180,7 +184,9 @@ class AssessmentRunner(QDialog):
         layout.addWidget(status_card)
 
         self.progress = QProgressBar()
-        self.progress.setRange(0, 0)   # indeterminate; the modality owns its own pacing
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
         layout.addWidget(self.progress)
 
         note = QLabel(
@@ -265,6 +271,10 @@ class AssessmentRunner(QDialog):
         self.started_at = datetime.now().isoformat(timespec="seconds")
         self.start_perf = time.perf_counter()
         self.status = "running"
+        self.elapsed_label.setText(
+            f"0.0 s / {self.modality.est_duration_s:g} s"
+        )
+        self.progress.setValue(0)
         config.ensure_dirs()
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.run_output_dir = os.path.join(
@@ -308,7 +318,9 @@ class AssessmentRunner(QDialog):
         if self.start_perf is None:
             return
         elapsed = time.perf_counter() - self.start_perf
-        self.elapsed_label.setText(f"{elapsed:.1f} s")
+        estimate = max(float(self.modality.est_duration_s), 0.1)
+        self.elapsed_label.setText(f"{elapsed:.1f} s / {estimate:g} s")
+        self.progress.setValue(min(1000, round(1000 * elapsed / estimate)))
         if elapsed > config.MODALITY_TIMEOUT_S:
             self._append_log(
                 f"ERROR: exceeded MODALITY_TIMEOUT_S ({config.MODALITY_TIMEOUT_S}s); terminating."

@@ -50,8 +50,9 @@ als-monitor shoulder
 als-monitor speech
 ```
 
-Run `als-monitor` without an option to use an interactive menu. The launcher
-automatically finds the project, changes directory, and sets `PYTHONPATH`.
+Run `als-monitor` without an option to open the NEXA user interface directly.
+The launcher automatically finds the project, changes directory, and sets
+`PYTHONPATH`.
 
 ## Windows setup
 
@@ -104,7 +105,7 @@ als-monitor shoulder
 als-monitor speech
 ```
 
-Running `als-monitor` without a service opens the interactive menu.
+Running `als-monitor` without a service opens the NEXA user interface directly.
 
 To run without installing the launcher:
 

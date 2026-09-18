@@ -54,6 +54,7 @@ MAX_RECORDING_SECONDS = 180
 # =====================================================================
 TASK_SUSTAINED_VOWEL = "sustained_vowel"
 TASK_CONNECTED_SPEECH = "connected_speech"
+TASK_READING = "reading"
 
 SUSTAINED_VOWEL_MIN_SECONDS = 2.0    # below this, quality check warns
 SUSTAINED_VOWEL_TARGET_SECONDS = 5.0

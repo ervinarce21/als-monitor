@@ -10,6 +10,7 @@ no diagnostic or predictive statement of any kind.
 """
 
 import html
+import json
 import os
 from datetime import datetime
 
@@ -43,6 +44,21 @@ th { background: #f4f7fa; font-weight: 600; width: 34%; }
 
 def _esc(v):
     return html.escape("" if v is None else str(v))
+
+
+def _speech_task(run, metrics):
+    """Return the speech task, including for runs saved before task metadata."""
+    task = metrics.get("task")
+    if not task and run["raw_path"]:
+        summary_path = os.path.join(run["raw_path"], "speech_summary.json")
+        try:
+            with open(summary_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, dict):
+                task = payload.get("task")
+        except (OSError, json.JSONDecodeError):
+            pass
+    return str(task).replace("_", " ").title() if task else "Unspecified"
 
 
 def build_session_html(db, session_id):
@@ -85,6 +101,9 @@ def build_session_html(db, session_id):
         for run in runs:
             modality = modalities.get(run["modality"])
             name = modality.name if modality else run["modality"]
+            metrics = db.run_metrics(run)
+            if run["modality"] == "speech":
+                name = f"{name} - {_speech_task(run, metrics)}"
             parts.append(f"<h2>{_esc(name)}</h2>")
 
             status = run["status"]
@@ -93,7 +112,6 @@ def build_session_html(db, session_id):
                 f"<span class='status-{_esc(status)}'>{_esc(status)}</span></p>"
             )
 
-            metrics = db.run_metrics(run)
             if modality:
                 formatted = modality.format_metrics(metrics)
             else:

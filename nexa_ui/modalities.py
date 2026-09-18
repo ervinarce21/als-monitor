@@ -163,6 +163,9 @@ class Modality:
                     metrics[metric.key] = None
             else:
                 metrics[metric.key] = metric.compute(rows)
+        for key in ("task", "quality_status", "quality_flags"):
+            if key in direct:
+                metrics[key] = direct[key]
         return metrics
 
     def format_metrics(self, metrics):
@@ -280,6 +283,77 @@ SPEECH = Modality(
     args=["assess", "--duration", "10"],
     est_duration_s=20,
 )
+
+
+SPEECH_TASKS = {
+    "connected_speech": {
+        "name": "Connected Speech",
+        "subtitle": "Continuous speech timing and acoustic assessment",
+        "instruction": "Speak naturally about a familiar topic",
+        "detail": (
+            "Continue speaking at a comfortable pace and volume until the "
+            "recording ends."
+        ),
+        "duration": 30,
+    },
+    "sustained_vowel": {
+        "name": "Sustained Vowel",
+        "subtitle": "Sustained vowel phonation assessment",
+        "instruction": "Take a breath and hold the sound 'ah'",
+        "detail": (
+            "Use a comfortable pitch and volume, and sustain the sound steadily "
+            "until the recording ends."
+        ),
+        "duration": 5,
+    },
+    "reading": {
+        "name": "Reading",
+        "subtitle": "Fixed-passage speech timing assessment",
+        "instruction": "Read the displayed passage at your normal pace",
+        "detail": (
+            "Speak clearly at a comfortable volume. This task currently uses the "
+            "shared acoustic analysis while reading-rate measures are scaffolded."
+        ),
+        "duration": 30,
+    },
+}
+
+
+def speech_modality(task, wav_path=None):
+    """Build a speech runner configuration for a task or existing WAV."""
+    spec = SPEECH_TASKS[task]
+    if wav_path:
+        commands = {
+            "connected_speech": "analyze-speech",
+            "sustained_vowel": "analyze-sustained-vowel",
+            "reading": "analyze-reading",
+        }
+        args = [commands[task], wav_path]
+        name = f"Analyze WAV - {spec['name']}"
+        subtitle = "Analyze and attach an existing WAV recording"
+        instruction = "Confirm the selected recording and analysis type"
+        detail = os.path.basename(wav_path)
+        duration = 10
+    else:
+        args = ["assess", "--task", task, "--duration", str(spec["duration"])]
+        name = spec["name"]
+        subtitle = spec["subtitle"]
+        instruction = spec["instruction"]
+        detail = spec["detail"]
+        duration = spec["duration"]
+
+    return Modality(
+        key="speech",
+        name=name,
+        subtitle=subtitle,
+        output_files=list(SPEECH.output_files),
+        metrics=list(SPEECH.metrics),
+        operator_checklist=list(SPEECH.operator_checklist),
+        patient_instruction=instruction,
+        patient_detail=detail,
+        args=args,
+        est_duration_s=duration,
+    )
 
 REGISTRY = [GRIP, OCULOMOTOR, MOTOR, SPEECH]
 BY_KEY = {m.key: m for m in REGISTRY}

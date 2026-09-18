@@ -96,6 +96,10 @@ QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit {{
 
 QTableWidget {{
     background-color: {SURFACE};
+    alternate-background-color: {SURFACE_ALT};
+    color: {TEXT};
+    selection-background-color: {ACCENT_DARK};
+    selection-color: {TEXT};
     gridline-color: {BORDER};
     border: 1px solid {BORDER};
     border-radius: 6px;
@@ -107,8 +111,11 @@ QHeaderView::section {{
     padding: 10px;
     font-weight: bold;
 }}
-QTableWidget::item {{ padding: 8px; }}
-QTableWidget::item:selected {{ background-color: {ACCENT_DARK}; }}
+QTableWidget::item {{ padding: 8px; color: {TEXT}; }}
+QTableWidget::item:selected {{
+    background-color: {ACCENT_DARK};
+    color: {TEXT};
+}}
 
 QPlainTextEdit#Log {{
     font-family: "DejaVu Sans Mono", monospace;

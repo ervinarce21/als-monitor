@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS session (
 CREATE TABLE IF NOT EXISTS speech_assessment (
     assessment_id            INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id               TEXT NOT NULL REFERENCES session(session_id),
-    task_name                 TEXT NOT NULL,     -- 'sustained_vowel' | 'connected_speech'
+    task_name                 TEXT NOT NULL,     -- sustained_vowel | connected_speech | reading
     audio_filename             TEXT NOT NULL,
     sample_rate_hz             INTEGER,
     recording_duration_sec     REAL,

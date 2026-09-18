@@ -23,40 +23,13 @@ Services:
   speech    Run speech-analysis commands
   help      Show this help
 
-Run without a service to open the interactive menu.
+Run without a service to open the NEXA user interface.
 EOF
 }
 
-choose_service() {
-    echo "ALS Monitor"
-    echo "1) NEXA UI"
-    echo "2) Eye tracker"
-    echo "3) Eye-camera preview"
-    echo "4) Grip monitor"
-    echo "5) Shoulder monitor"
-    echo "6) Speech analysis"
-    echo "7) Exit"
-    read -r -p "Select a service [1-7]: " choice
-
-    case "$choice" in
-        1) selected_service="ui" ;;
-        2) selected_service="eye" ;;
-        3) selected_service="preview" ;;
-        4) selected_service="grip" ;;
-        5) selected_service="shoulder" ;;
-        6) selected_service="speech" ;;
-        7) exit 0 ;;
-        *) echo "Invalid selection." >&2; exit 2 ;;
-    esac
-}
-
-service="${1:-}"
+service="${1:-ui}"
 if [[ -n "$service" ]]; then
-    shift
-else
-    selected_service=""
-    choose_service
-    service="$selected_service"
+    [[ $# -eq 0 ]] || shift
 fi
 
 case "$service" in

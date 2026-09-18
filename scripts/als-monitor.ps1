@@ -102,37 +102,12 @@ Services:
   speech    Run speech-analysis commands
   help      Show this help
 
-Run without a service to open the interactive menu.
+Run without a service to open the NEXA user interface.
 "@
 }
 
-function Select-Service {
-    Write-Host "ALS Monitor"
-    Write-Host "1) NEXA UI"
-    Write-Host "2) Eye tracker"
-    Write-Host "3) Eye-camera preview"
-    Write-Host "4) Grip monitor"
-    Write-Host "5) Shoulder monitor"
-    Write-Host "6) Speech analysis"
-    Write-Host "7) Exit"
-
-    switch (Read-Host "Select a service [1-7]") {
-        "1" { return "ui" }
-        "2" { return "eye" }
-        "3" { return "preview" }
-        "4" { return "grip" }
-        "5" { return "shoulder" }
-        "6" { return "speech" }
-        "7" { return $null }
-        default { throw "Invalid selection." }
-    }
-}
-
 if (-not $Service) {
-    $Service = Select-Service
-    if (-not $Service) {
-        exit 0
-    }
+    $Service = "ui"
 }
 
 Push-Location $ProjectRoot

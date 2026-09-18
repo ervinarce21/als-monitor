@@ -164,6 +164,31 @@ def cmd_assess(args):
     return 0
 
 
+def _stage_existing_analysis(wav_path, metrics):
+    """Write artifacts expected by NEXA UI when analyzing an existing WAV."""
+    output_dir_value = os.environ.get("NEXA_OUTPUT_DIR")
+    if not output_dir_value:
+        return True
+
+    output_dir = Path(output_dir_value)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source = Path(wav_path)
+    staged_wav = output_dir / "speech_recording.wav"
+    summary_path = output_dir / "speech_summary.json"
+    try:
+        if source.resolve() != staged_wav.resolve():
+            shutil.copy2(str(source), str(staged_wav))
+        with open(summary_path, "w") as handle:
+            json.dump(metrics, handle, indent=2)
+    except OSError as exc:
+        print("ERROR: could not stage NEXA analysis output: %s" % exc)
+        return False
+
+    print("Recording copied to: %s" % staged_wav)
+    print("Summary written to: %s" % summary_path)
+    return True
+
+
 def _store_analysis(wav_path, task, metrics, participant_id, session_id,
                     is_baseline):
     if cmd_init_db(None):
@@ -214,6 +239,8 @@ def _analysis_handler(task):
             args.wav_path, task, metrics, args.participant, args.session_id,
             args.baseline)
         if session_id is None:
+            return 1
+        if not _stage_existing_analysis(args.wav_path, metrics):
             return 1
         print("Stored as session: %s" % session_id)
         return 0
@@ -279,10 +306,12 @@ def _prompt_command_arguments(command):
     if command == "record":
         print("1) Sustained vowel")
         print("2) Connected speech")
-        task_choice = input("Select task [1-2, blank for default]: ").strip()
+        print("3) Reading")
+        task_choice = input("Select task [1-3, blank for default]: ").strip()
         task = {
             "1": config.TASK_SUSTAINED_VOWEL,
             "2": config.TASK_CONNECTED_SPEECH,
+            "3": config.TASK_READING,
         }.get(task_choice)
         if task_choice and task is None:
             print("Invalid task selection.")
@@ -409,7 +438,8 @@ def build_parser():
 
     p = sub.add_parser("record", help="Record a mono PCM16 WAV file.")
     p.add_argument("--task", choices=[config.TASK_SUSTAINED_VOWEL,
-                                      config.TASK_CONNECTED_SPEECH],
+                                      config.TASK_CONNECTED_SPEECH,
+                                      config.TASK_READING],
                   required=False)
     p.add_argument("--duration", type=float, default=None)
     p.add_argument("--out", type=str, default=None)
@@ -418,7 +448,8 @@ def build_parser():
     p = sub.add_parser(
         "assess", help="Record and analyze one speech assessment.")
     p.add_argument("--task", choices=[config.TASK_SUSTAINED_VOWEL,
-                                      config.TASK_CONNECTED_SPEECH],
+                                      config.TASK_CONNECTED_SPEECH,
+                                      config.TASK_READING],
                    default=config.TASK_CONNECTED_SPEECH)
     p.add_argument("--duration", type=float, default=10.0)
     p.add_argument("--participant", default=config.PARTICIPANT_ID_DEFAULT)
@@ -443,7 +474,7 @@ def build_parser():
     p = sub.add_parser("analyze-reading",
                        help="Analyze timing in a read passage.")
     _add_analysis_options(p)
-    p.set_defaults(func=_analysis_handler(config.TASK_CONNECTED_SPEECH))
+    p.set_defaults(func=_analysis_handler(config.TASK_READING))
 
     sub.add_parser("show-results", help="Print stored results.") \
         .set_defaults(func=cmd_show_results)

@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS runs (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
+CREATE TABLE IF NOT EXISTS assessment_baselines (
+    participant_id INTEGER NOT NULL,
+    modality TEXT NOT NULL,
+    task TEXT NOT NULL DEFAULT '',
+    run_id INTEGER NOT NULL,
+    set_at TEXT NOT NULL,
+    PRIMARY KEY (participant_id, modality, task),
+    FOREIGN KEY (participant_id) REFERENCES participants(id),
+    FOREIGN KEY (run_id) REFERENCES runs(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_participant ON sessions(participant_id);
 CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
 """
@@ -189,6 +200,32 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM runs WHERE session_id = ? AND modality = ?"
             " ORDER BY started_at DESC LIMIT 1", (session_id, modality)
+        ).fetchone()
+
+    def set_baseline_run(self, participant_id, modality, task, run_id):
+        run = self.conn.execute(
+            "SELECT r.id FROM runs r JOIN sessions s ON s.id = r.session_id"
+            " WHERE r.id = ? AND r.modality = ? AND s.participant_id = ?",
+            (run_id, modality, participant_id),
+        ).fetchone()
+        if run is None:
+            raise ValueError("The selected assessment does not belong to this participant.")
+        self.conn.execute(
+            "INSERT INTO assessment_baselines"
+            " (participant_id, modality, task, run_id, set_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(participant_id, modality, task) DO UPDATE SET"
+            " run_id = excluded.run_id, set_at = excluded.set_at",
+            (participant_id, modality, task or "", run_id, _now()),
+        )
+        self.conn.commit()
+
+    def get_baseline_run(self, participant_id, modality, task=""):
+        return self.conn.execute(
+            "SELECT r.* FROM assessment_baselines b"
+            " JOIN runs r ON r.id = b.run_id"
+            " WHERE b.participant_id = ? AND b.modality = ? AND b.task = ?",
+            (participant_id, modality, task or ""),
         ).fetchone()
 
     @staticmethod

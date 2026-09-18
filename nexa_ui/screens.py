@@ -8,14 +8,14 @@ System Check. Each screen is a QWidget swapped into the main window's stack.
 import json
 import os
 import shutil
-import subprocess
 
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QTimer
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QSpinBox, QComboBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QMessageBox, QAbstractItemView, QTextEdit, QScrollArea,
-    QDialog, QDialogButtonBox, QFormLayout,
+    QDialog, QDialogButtonBox, QFormLayout, QFileDialog, QInputDialog,
 )
 
 import config
@@ -73,6 +73,225 @@ def show_metrics_dialog(parent, title, metrics):
     buttons = QDialogButtonBox(QDialogButtonBox.Close)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
+    dialog.exec_()
+
+
+def _speech_task_key(run, metrics):
+    task = metrics.get("task")
+    if not task and run["raw_path"]:
+        summary_path = os.path.join(run["raw_path"], "speech_summary.json")
+        try:
+            with open(summary_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, dict):
+                task = payload.get("task")
+        except (OSError, json.JSONDecodeError):
+            pass
+    return str(task or "")
+
+
+def show_baseline_comparison_dialog(parent, baseline_run, current_run, db, task):
+    baseline_metrics = db.run_metrics(baseline_run)
+    current_metrics = db.run_metrics(current_run)
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Speech baseline comparison")
+    dialog.resize(min(820, config.SCREEN_WIDTH - 30),
+                  min(520, config.SCREEN_HEIGHT - 30))
+    layout = QVBoxLayout(dialog)
+
+    heading = QLabel(f"Speech - {task.replace('_', ' ').title()}")
+    heading.setObjectName("H1")
+    layout.addWidget(heading)
+    context = QLabel(
+        f"Baseline: {baseline_run['started_at']}   Current: {current_run['started_at']}"
+    )
+    context.setObjectName("Dim")
+    layout.addWidget(context)
+
+    table = QTableWidget(len(modalities.SPEECH.metrics), 5, dialog)
+    table.setHorizontalHeaderLabels(
+        ["Measurement", "Baseline", "Current", "Change", "Change %"]
+    )
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    for row, metric in enumerate(modalities.SPEECH.metrics):
+        baseline = baseline_metrics.get(metric.key)
+        current = current_metrics.get(metric.key)
+        change = None
+        percent = None
+        if isinstance(baseline, (int, float)) and isinstance(current, (int, float)):
+            change = current - baseline
+            if baseline != 0:
+                percent = 100.0 * change / baseline
+        values = [
+            metric.label,
+            metric.format(baseline),
+            metric.format(current),
+            "Not available" if change is None else f"{change:+.{metric.precision}f}",
+            "Not available" if percent is None else f"{percent:+.1f}%",
+        ]
+        for column, value in enumerate(values):
+            table.setItem(row, column, QTableWidgetItem(value))
+    layout.addWidget(table, 1)
+
+    close_btn = QPushButton("Close")
+    close_btn.clicked.connect(dialog.accept)
+    layout.addWidget(close_btn)
+    dialog.exec_()
+
+
+def show_session_results_dialog(parent, db, session_id):
+    """Display every saved assessment run for one session."""
+    runs = list(db.list_runs(session_id))
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(f"Session {session_id} assessment results")
+    dialog.resize(min(900, config.SCREEN_WIDTH - 30),
+                  min(540, config.SCREEN_HEIGHT - 30))
+    layout = QVBoxLayout(dialog)
+
+    heading = QLabel("Assessment results")
+    heading.setObjectName("H1")
+    layout.addWidget(heading)
+
+    session = db.get_session(session_id)
+    participant_id = session["participant_id"]
+    table = QTableWidget(len(runs), 6, dialog)
+    table.setHorizontalHeaderLabels(
+        ["Assessment", "Task", "Started", "Status", "Quality", "Baseline"]
+    )
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SingleSelection)
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    for row, run in enumerate(runs):
+        modality = modalities.get(run["modality"])
+        metrics = db.run_metrics(run)
+        task_key = _speech_task_key(run, metrics) if run["modality"] == "speech" else ""
+        task = task_key.replace("_", " ").title()
+        quality = str(metrics.get("quality_status") or "")
+        baseline = (db.get_baseline_run(participant_id, "speech", task_key)
+                    if task_key else None)
+        values = [
+            modality.name if modality else run["modality"].replace("_", " ").title(),
+            task or "Not specified",
+            run["started_at"],
+            run["status"].title(),
+            quality or "Not reported",
+            "Yes" if baseline is not None and baseline["id"] == run["id"] else "",
+        ]
+        for column, value in enumerate(values):
+            table.setItem(row, column, QTableWidgetItem(value))
+
+    table.resizeRowsToContents()
+    layout.addWidget(table, 1)
+
+    if not runs:
+        empty = QLabel("No assessment results have been saved for this session.")
+        empty.setObjectName("Dim")
+        layout.addWidget(empty)
+
+    button_row = QHBoxLayout()
+    details_btn = QPushButton("Show details")
+    details_btn.setEnabled(bool(runs))
+    baseline_btn = QPushButton("Set as baseline")
+    compare_btn = QPushButton("Compare to baseline")
+    baseline_btn.setEnabled(False)
+    compare_btn.setEnabled(False)
+    close_btn = QPushButton("Close")
+    close_btn.clicked.connect(dialog.accept)
+    button_row.addWidget(details_btn)
+    button_row.addWidget(baseline_btn)
+    button_row.addWidget(compare_btn)
+    button_row.addStretch()
+    button_row.addWidget(close_btn)
+    layout.addLayout(button_row)
+
+    def show_selected_run():
+        row = table.currentRow()
+        if row < 0 or row >= len(runs):
+            QMessageBox.information(dialog, "No selection",
+                                    "Select an assessment first.")
+            return
+        run = runs[row]
+        modality = modalities.get(run["modality"])
+        metrics = db.run_metrics(run)
+        task_key = (_speech_task_key(run, metrics)
+                    if run["modality"] == "speech" else "")
+        task = task_key.replace("_", " ").title()
+        name = modality.name if modality else run["modality"].title()
+        if task:
+            name = f"{name} - {task}"
+        show_metrics_dialog(dialog, name, metrics)
+
+    details_btn.clicked.connect(show_selected_run)
+    table.doubleClicked.connect(lambda _index: show_selected_run())
+
+    def selected_speech_run():
+        row = table.currentRow()
+        if row < 0 or row >= len(runs):
+            return None, ""
+        run = runs[row]
+        if run["modality"] != "speech":
+            return None, ""
+        return run, _speech_task_key(run, db.run_metrics(run))
+
+    def update_baseline_actions():
+        run, task = selected_speech_run()
+        valid = bool(run is not None and task and run["status"] == "completed")
+        baseline_btn.setEnabled(valid)
+        baseline = (db.get_baseline_run(participant_id, "speech", task)
+                    if valid else None)
+        compare_btn.setEnabled(valid and baseline is not None)
+
+    def set_baseline():
+        run, task = selected_speech_run()
+        if run is None or not task:
+            return
+        reply = QMessageBox.question(
+            dialog, "Set speech baseline",
+            f"Use this {task.replace('_', ' ')} assessment as the participant baseline?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            db.set_baseline_run(participant_id, "speech", task, run["id"])
+        except Exception as exc:
+            QMessageBox.critical(dialog, "Baseline error", str(exc))
+            return
+        for row_index, candidate in enumerate(runs):
+            if candidate["modality"] != "speech":
+                continue
+            candidate_task = _speech_task_key(candidate, db.run_metrics(candidate))
+            if candidate_task == task:
+                table.item(row_index, 5).setText(
+                    "Yes" if candidate["id"] == run["id"] else ""
+                )
+        update_baseline_actions()
+
+    def compare_baseline():
+        run, task = selected_speech_run()
+        if run is None or not task:
+            return
+        baseline = db.get_baseline_run(participant_id, "speech", task)
+        if baseline is None:
+            QMessageBox.information(dialog, "No baseline",
+                                    "Set a baseline for this speech task first.")
+            return
+        show_baseline_comparison_dialog(dialog, baseline, run, db, task)
+
+    baseline_btn.clicked.connect(set_baseline)
+    compare_btn.clicked.connect(compare_baseline)
+    table.itemSelectionChanged.connect(update_baseline_actions)
+    if runs:
+        table.selectRow(0)
+        update_baseline_actions()
     dialog.exec_()
 
 
@@ -388,6 +607,10 @@ class SessionScreen(QWidget):
         report_btn.clicked.connect(self._generate_report)
         header.addWidget(report_btn)
 
+        results_btn = QPushButton("Assessment results")
+        results_btn.clicked.connect(self._show_all_results)
+        header.addWidget(results_btn)
+
         end_btn = QPushButton("End session")
         end_btn.setObjectName("Danger")
         end_btn.clicked.connect(self._end_session)
@@ -444,9 +667,91 @@ class SessionScreen(QWidget):
         modality = modalities.get(key)
         if modality is None or self.session_id is None:
             return
-        dlg = AssessmentRunner(modality, self.db, self.session_id, self)
+        if key == "speech":
+            modality = self._choose_speech_assessment()
+            if modality is None:
+                return
+        analyze_existing = (
+            key == "speech"
+            and bool(modality.args)
+            and modality.args[0].startswith("analyze-")
+        )
+        dlg = AssessmentRunner(
+            modality, self.db, self.session_id, self,
+            auto_start=analyze_existing,
+        )
         dlg.exec_()
         self.refresh()
+
+    def _choose_speech_assessment(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Speech analysis")
+        dialog.setModal(True)
+        dialog.resize(560, 440)
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("Choose speech analysis")
+        title.setObjectName("H1")
+        layout.addWidget(title)
+
+        description = QLabel(
+            "Record a new task or analyze an existing 16-bit PCM WAV file."
+        )
+        description.setObjectName("Dim")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        selected = {"modality": None}
+
+        def choose_task(task):
+            selected["modality"] = modalities.speech_modality(task)
+            dialog.accept()
+
+        task_buttons = (
+            ("Connected-speech assessment", "connected_speech"),
+            ("Sustained-vowel assessment", "sustained_vowel"),
+            ("Reading assessment", "reading"),
+        )
+        for label, task in task_buttons:
+            button = QPushButton(label)
+            button.setMinimumHeight(config.TOUCH_MIN_BUTTON_HEIGHT)
+            button.clicked.connect(lambda checked=False, value=task: choose_task(value))
+            layout.addWidget(button)
+
+        def choose_existing():
+            path, _ = QFileDialog.getOpenFileName(
+                dialog, "Select speech recording", "", "WAV audio (*.wav)"
+            )
+            if not path:
+                return
+            labels = ["Connected speech", "Sustained vowel", "Reading"]
+            label, accepted = QInputDialog.getItem(
+                dialog, "Analysis type", "Recording task:", labels, 0, False
+            )
+            if not accepted:
+                return
+            tasks = {
+                "Connected speech": "connected_speech",
+                "Sustained vowel": "sustained_vowel",
+                "Reading": "reading",
+            }
+            selected["modality"] = modalities.speech_modality(tasks[label], path)
+            dialog.accept()
+
+        existing_btn = QPushButton("Analyze existing WAV")
+        existing_btn.setObjectName("Primary")
+        existing_btn.setMinimumHeight(config.TOUCH_MIN_BUTTON_HEIGHT)
+        existing_btn.clicked.connect(choose_existing)
+        layout.addWidget(existing_btn)
+        layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        layout.addWidget(cancel_btn)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return selected["modality"]
 
     def _show_modality_details(self, key):
         if self.session_id is None:
@@ -457,6 +762,10 @@ class SessionScreen(QWidget):
             return
         show_metrics_dialog(self, modality.name, self.db.run_metrics(run))
 
+    def _show_all_results(self):
+        if self.session_id is not None:
+            show_session_results_dialog(self, self.db, self.session_id)
+
     def _generate_report(self):
         if self.session_id is None:
             return
@@ -465,8 +774,11 @@ class SessionScreen(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Report error", f"Could not generate report:\n{e}")
             return
-        _open_file(path)
-        QMessageBox.information(self, "Report generated", f"Saved to:\n{path}")
+        if not _open_file(path):
+            QMessageBox.information(
+                self, "Report generated",
+                f"The report was saved but could not be opened automatically:\n{path}"
+            )
 
     def _end_session(self):
         if self.session_id is None:
@@ -518,9 +830,12 @@ class HistoryScreen(QWidget):
         btn_row = QHBoxLayout()
         view_btn = QPushButton("View report")
         view_btn.clicked.connect(self._view_report)
+        results_btn = QPushButton("View assessments")
+        results_btn.clicked.connect(self._view_assessments)
         export_btn = QPushButton("Export raw data folder path")
         export_btn.clicked.connect(self._show_raw_path)
         btn_row.addWidget(view_btn)
+        btn_row.addWidget(results_btn)
         btn_row.addWidget(export_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
@@ -561,7 +876,18 @@ class HistoryScreen(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Report error", str(e))
             return
-        _open_file(path)
+        if not _open_file(path):
+            QMessageBox.information(
+                self, "Report generated",
+                f"The report was saved but could not be opened automatically:\n{path}"
+            )
+
+    def _view_assessments(self):
+        sid = self._selected_session_id()
+        if sid is None:
+            QMessageBox.information(self, "No selection", "Select a session first.")
+            return
+        show_session_results_dialog(self, self.db, sid)
 
     def _show_raw_path(self):
         sid = self._selected_session_id()
@@ -656,8 +982,4 @@ class SystemCheckScreen(QWidget):
 
 def _open_file(path):
     """Open a generated file with the desktop default handler."""
-    try:
-        subprocess.Popen(["xdg-open", path],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(path)))
