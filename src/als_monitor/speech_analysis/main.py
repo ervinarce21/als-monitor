@@ -96,6 +96,32 @@ def cmd_init_db(_args):
     return 0
 
 
+def _recording_sample_rate(sd):
+    """Validate the preferred rate, then try the selected microphone's default."""
+    device = config.MIC_DEVICE_INDEX
+    info = sd.query_devices(device, "input")
+    rates = list(dict.fromkeys([int(config.SAMPLE_RATE),
+                               int(info["default_samplerate"])]))
+    errors = []
+    for rate in rates:
+        try:
+            sd.check_input_settings(device=device, channels=config.CHANNELS,
+                                    dtype="int16", samplerate=rate)
+        except sd.PortAudioError as exc:
+            errors.append("%d Hz: %s" % (rate, exc))
+            continue
+        print("Microphone: %s | sample rate: %d Hz" % (info["name"], rate),
+              flush=True)
+        if rate != config.SAMPLE_RATE:
+            print("Requested %d Hz unavailable; using microphone default %d Hz."
+                  % (config.SAMPLE_RATE, rate), flush=True)
+        return rate
+    raise RuntimeError(
+        "Microphone %s does not support the requested PCM16 input settings. %s. "
+        "Run 'nexa speech list-microphones' and check MIC_DEVICE_INDEX in config.py."
+        % (info["name"], "; ".join(errors)))
+
+
 def cmd_record(args):
     """Record mono PCM16 audio from the configured microphone."""
     try:
@@ -117,16 +143,17 @@ def cmd_record(args):
         ("%s_%s.wav" % (task, datetime.now().strftime("%Y%m%d_%H%M%S"))))
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        print("Recording %.1f seconds..." % duration)
-        frames = int(duration * config.SAMPLE_RATE)
-        audio = sd.rec(frames, samplerate=config.SAMPLE_RATE,
+        sample_rate = _recording_sample_rate(sd)
+        print("Recording %.1f seconds..." % duration, flush=True)
+        frames = int(duration * sample_rate)
+        audio = sd.rec(frames, samplerate=sample_rate,
                        channels=config.CHANNELS, dtype="int16",
                        device=config.MIC_DEVICE_INDEX)
         sd.wait()
         with wave.open(str(output), "wb") as wav:
             wav.setnchannels(config.CHANNELS)
             wav.setsampwidth(config.SAMPLE_WIDTH_BITS // 8)
-            wav.setframerate(config.SAMPLE_RATE)
+            wav.setframerate(sample_rate)
             wav.writeframes(audio.astype("<i2").tobytes())
     except Exception as exc:
         print("ERROR: recording failed: %s" % exc)
