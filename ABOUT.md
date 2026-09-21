@@ -2,7 +2,11 @@
 
 Program Overview and Operator Guide
 
-Documentation snapshot: 18 September 2026
+Documentation snapshot: 21 September 2026
+
+This Markdown reflects the current implementation. The previously generated
+`output/pdf/NEXA-Program-Guide.pdf` is the 18 September snapshot and has not been
+regenerated with these research-method updates.
 
 ## 1. Purpose and Scope
 
@@ -26,7 +30,7 @@ Debian 13 (Trixie), with a Waveshare OV9281-110 monochrome CSI camera.
 ### Service Map
 
 - Grip Strength: `als_monitor.grip_monitor`; ESP32 and two load cells; left and right peak force in newtons.
-- Oculomotor: `als_monitor.eye_tracker`; Picamera2 CSI capture; visually guided prosaccade latency.
+- Oculomotor: `als_monitor.eye_tracker`; CSI dark-pupil or webcam MediaPipe iris tracking; experimental visually guided prosaccade latency.
 - Motor / Movement: `als_monitor.shoulder_monitor`; webcam and MediaPipe; 2D arm-elevation velocity.
 - Speech: `als_monitor.speech_analysis`; microphone or existing WAV; timing, acoustic estimates, and quality flags.
 - NEXA UI: `nexa_ui/app.py`; participant/session workflow, review, baseline comparison, and HTML reports.
@@ -38,11 +42,12 @@ Debian 13 (Trixie), with a Waveshare OV9281-110 monochrome CSI camera.
 3. Installation and launching
 4. Operator workflow and reports
 5. Grip measurement and calibration
-6. Eye tracking and CSI camera
+6. Eye tracking: CSI and webcam
 7. Shoulder movement
 8. Speech assessment
 9. Storage, privacy, and baselines
 10. Troubleshooting, limitations, and maintenance
+11. Research reproducibility, validation, and references
 
 ## 2. Architecture and Repository
 
@@ -115,7 +120,7 @@ sudo apt install python3-picamera2 python3-opencv python3-numpy \
   python3-venv python3-serial libportaudio2 alsa-utils
 cd "$HOME/Documents/ALS Monitor/als-monitor"
 python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install sounddevice
+.venv/bin/python -m pip install sounddevice praat-parselmouth
 bash scripts/install-launcher.sh
 bash scripts/install-desktop-shortcuts.sh
 ```
@@ -136,8 +141,11 @@ nexa help
 
 Linux normally uses `.venv/bin/python`, falling back to `python3`. For shoulder
 monitoring, the Linux launcher and UI prefer `.venv-shoulder` when present.
-The UI otherwise uses its own interpreter for assessments. See Section 7 for
-the Pi-specific shoulder environment.
+Webcam eye tracking also reuses `.venv-shoulder` when available; CSI capture
+stays in the Picamera2-capable environment. The UI otherwise uses its own
+interpreter for assessments. See Sections 6 and 7 for the MediaPipe setup.
+Parselmouth installation on the Pi remains dependent on compatible wheels or
+a supported build; the verified Windows installation does not establish Pi support.
 
 ### Windows
 
@@ -145,7 +153,7 @@ Use a working Python installation with SQLite support. From PowerShell:
 
 ```powershell
 py -3 -m pip install numpy opencv-python matplotlib pyserial `
-  sounddevice PyQt5 pygame
+  sounddevice PyQt5 pygame praat-parselmouth
 powershell -ExecutionPolicy Bypass -File .\scripts\install-launcher.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop-shortcuts.ps1
 ```
@@ -161,8 +169,8 @@ Set `ALS_MONITOR_PYTHON` to an explicit executable if multiple installations
 cause confusion. The Windows CLI does not implement the Linux shoulder-specific
 environment selection; the UI does recognize `.venv-shoulder/Scripts/python.exe`.
 
-Eye capture currently requires Raspberry Pi Picamera2 and is not available on
-Windows. Grip needs a Windows serial port such as `COM3`, configured in the
+CSI eye capture requires Raspberry Pi Picamera2; webcam eye capture works on
+Windows with OpenCV, MediaPipe, pygame, and the face model. Grip needs a Windows serial port such as `COM3`, configured in the
 service; the calibration dialog has its own port selection. Speech uses a local
 microphone, and shoulder uses OpenCV camera index 0.
 
@@ -278,7 +286,13 @@ not a persistent full force-time trace, contraction duration, or validated
 fatigue/consistency score. Some checklist text still names Arduino Uno even
 though the configured deployment uses an ESP32.
 
-## 6. Eye Tracking and CSI Camera
+## 6. Eye Tracking: CSI and Webcam
+
+CSI is the default. The UI offers CSI camera or Webcam before an oculomotor run;
+the CLI accepts `--camera csi` or `--camera webcam`. The backend is selected
+explicitly: failure does not silently switch to a different sensor or algorithm.
+
+### CSI Dark-Pupil Pipeline
 
 The eye module selects a unique Picamera2 camera whose model contains `ov9281`.
 It does not silently fall back to a USB webcam. The Waveshare OV9281-110 is the
@@ -291,6 +305,54 @@ monotonic timing domain when available, with receive-time fallback. The sampler
 feeds pupil observations to the task. `pupil_tracker.py` uses image thresholding,
 morphology, and geometric/confidence filtering rather than a learned gaze model.
 
+The default image pipeline uses a 5-pixel Gaussian blur, adaptive dark-pixel
+thresholding, and a 5-pixel elliptical morphological kernel. Configuration sets
+the dark percentile to 2%, threshold offset to 12, and threshold limits to
+10-110 grayscale levels. Candidate filters include area 150-20000 pixels squared,
+circularity at least 0.55, fill at least 0.45, and confidence at least 0.35.
+These are project heuristics dependent on image scale and framing, not published
+clinical decision thresholds. Source: `eye_tracker/pupil_tracker.py` and `config.py`.
+
+### Webcam Face/Iris Model
+
+Webcam mode uses OpenCV camera 0 by default; this can be a built-in camera rather
+than USB on a laptop. `--webcam-index` is an optional override. Capture requests
+do not guarantee the camera's achieved resolution or FPS. The tracking model is
+Google MediaPipe Face Landmarker, configured for one face in VIDEO mode with
+face blendshapes enabled. This is pretrained inference, not a model trained or
+fine-tuned on NEXA participants. Google documents 478 face landmarks; the
+implementation selects the anatomical right iris center at index 468 or left
+at 473 and four surrounding points. [Face Landmarker guide](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/python)
+
+The model artifact is `data/models/face_landmarker.task`, from Google's
+`face_landmarker/face_landmarker/float16/1` bundle; `NEXA_FACE_MODEL` can override
+it. `scripts/setup-eye-webcam.sh` downloads the model and adds pygame to the
+existing `.venv-shoulder` environment without upgrading MediaPipe. Shoulder
+monitoring does not need to run; only its compatible Python environment is reused.
+
+```bash
+bash scripts/setup-eye-webcam.sh
+nexa preview --camera webcam
+nexa eye --camera webcam
+```
+
+Current preprocessing converts webcam frames to grayscale, then replicates them
+to RGB for the face model. This differs from feeding native color images and
+requires validation under intended lighting. Display flips are undone before
+inference and reapplied to coordinates so anatomical eye selection is retained.
+Missing/incomplete faces, nonfinite/out-of-frame iris points, and an available
+selected-eye blink blendshape score of at least 0.5 invalidate the observation.
+The reported iris radius is the mean distance to the four surrounding landmarks.
+Accepted samples use confidence 1, a binary acceptance marker, not a calibrated
+iris-detection probability. Blink filtering is a project heuristic.
+
+Coordinates are image pixels, not screen-gaze points, gaze angles, or a
+head-motion-corrected eye-rotation signal. Keep the full face visible and head
+position stable. Head movement can look like eye movement. Pixel thresholds
+developed for a close-up CSI eye image may not transfer to a full-face webcam.
+Backend and tracking method are saved in the eye summary; compare modalities
+separately until cross-backend equivalence has been demonstrated.
+
 ### Preview and Assessment
 
 ```bash
@@ -299,8 +361,9 @@ nexa preview
 nexa eye
 ```
 
-Preview overlays the pupil position and estimated FPS. B toggles the binary
-mask; Q or Escape exits. The assessment includes camera feedback and a fixation
+Preview overlays the pupil/iris position and estimated FPS. B toggles the binary
+mask for the CSI detector; no binary mask is generated by Face Landmarker.
+Q or Escape exits. The assessment includes camera feedback and a fixation
 quality check, followed by 10 trials with targets in left/right/up/down directions.
 Space advances task stages. Keep head position, lighting, and camera framing stable.
 
@@ -310,6 +373,34 @@ and latency limits. These are configurable research parameters, not clinical
 cutoffs. Pupil velocity is in pixels/second, not calibrated gaze degrees/second.
 Summary statistics include valid/invalid trial counts, mean latency, standard
 deviation, coefficient of variation, and minimum/maximum latency.
+
+### Onset Detection and Timing Parameters
+
+The custom detector filters valid observations, applies a centered three-sample
+moving average, and computes Euclidean pixel speed using central differences
+(one-sided at endpoints). A 0.30-second pre-target interval supplies baseline
+position and speed. The speed threshold is the greater of 120 pixels/second and
+baseline mean speed plus five baseline standard deviations. A candidate requires
+at least three consecutive above-threshold samples spanning at least 20 ms.
+Onset is sought from 70 to 800 ms after target presentation. Direction validation
+requires at least 6 pixels of signed displacement within 150 ms and limits
+off-axis displacement to a ratio of 1.5. These defaults are configurable.
+
+The quality gate requires at least 15 valid samples overall, eight baseline
+samples, and a median sample interval no greater than 25 ms. Therefore a 30 FPS
+webcam is suitable for preview but commonly fails the assessment's sampling
+gate. The requested target is 120 FPS; 60 FPS may pass, but camera rate alone
+does not establish effective sampling rate after model inference.
+
+Latency is `1000 * (detected_onset_time - target_onset_time)`, in milliseconds.
+CSI prefers sensor timestamps mapped to the monotonic clock and can fall back
+to receive time. Webcam timestamps are assigned after frame receipt; exposure,
+USB buffering, and driver latency are not independently corrected. Target onset
+uses software timing, not a photodiode measurement. The display-latency
+compensation default is zero. Centered smoothing can shift onset estimates,
+and median-interval gating does not rule out isolated long gaps. Validate the
+full timing chain against an external reference before claiming millisecond
+accuracy. Source: `eye_tracker/saccade_detector.py`, `camera.py`, and `config.py`.
 
 UI runs create `eye_results.csv`, `eye_summary.json`, and optionally
 `eye_samples.csv`. Important current limitation: the UI registry collects only
@@ -348,6 +439,25 @@ MediaPipe Pose Landmarker. The model is loaded from
 `data/models/pose_landmarker_lite.task`, or the `NEXA_POSE_MODEL` override.
 It detects anatomical shoulders and wrists, filters low-confidence landmarks,
 and mirrors the displayed image while retaining anatomical side labels.
+
+### Model and Measurement Definition
+
+The selected artifact is Google's Pose Landmarker Lite float16 version-1 task
+bundle (`pose_landmarker/pose_landmarker_lite/float16/1`). MediaPipe provides
+33 body landmarks; NEXA uses image-coordinate shoulders 11/12 and wrists 15/16,
+not its world-coordinate output. The task runs in VIDEO mode for one pose.
+Landmark presence and visibility must each be at least 0.6 and normalized x/y
+must be within the image. These are filtering criteria, not calibrated joint
+position error bounds. [Pose Landmarker guide](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
+
+The pretrained network estimates landmarks only; the angle and velocity formulas
+are project code. For shoulder-to-wrist vector `(dx, dy)` in image pixels, with
+positive image y downward, elevation is the angle to downward vertical:
+`acos(dy / sqrt(dx*dx + dy*dy))`, expressed in degrees. Angular speed is the
+absolute finite difference of successive valid angles divided by elapsed seconds.
+Pixel aspect ratio, perspective, body rotation, and a bent elbow affect this
+proxy; it is not isolated glenohumeral range of motion. NEXA does not train an
+ALS-specific pose model or classify movement impairment.
 
 Select L or R for the evaluated arm. Press Space or click Start to arm a trial;
 the service waits for the required landmarks before recording. Keep the selected
@@ -392,7 +502,7 @@ curl -fL "$MODEL_BASE/$MODEL_PATH" \
 ```
 
 Linux `nexa shoulder` and motor assessments in the UI select `.venv-shoulder`
-when its executable exists; other services remain on their normal environment.
+when its executable exists; webcam eye tracking also reuses that environment.
 Close and reopen the UI after updating launcher/configuration code. A missing
 dedicated environment falls back to the default interpreter, potentially
 reintroducing the incompatible MediaPipe build.
@@ -424,16 +534,93 @@ use the actual rate. `MIC_DEVICE_INDEX` selects a nondefault microphone.
 The WAV reader accepts 16-bit PCM WAV and averages multichannel input to mono.
 It calculates recording duration, RMS level in dBFS, clipping fraction, estimated
 speech duration, internal pause duration/count/percentage, mean fundamental
-frequency (F0), an autocorrelation-based HNR estimate, and voiced-frame count.
+frequency (F0), Praat HNR, voiced pitch-frame count, and valid HNR-frame count.
 
 Speech timing uses RMS-energy thresholding in 30 ms frames, removes short speech
 bursts, and counts qualifying pauses between the first and last detected speech.
-The active minimum pause setting is 0.150 seconds. F0 and HNR use autocorrelation
-in overlapping 40 ms frames, with a configured 75-500 Hz pitch range.
+The active minimum pause setting is 0.150 seconds; speech bursts shorter than
+0.100 seconds are removed. For frame RMS values, the threshold is
+`max(10^(QC_MIN_RMS_DBFS/20), min(2.5*P20(RMS), 0.5*P80(RMS)))`.
+The cap prevents a steady vowel from setting its own threshold above its signal
+level, but this energy gate is still noise-sensitive and is not WebRTC VAD.
+Leading/trailing silence is excluded from pause counts; pause percentage divides
+internal pause time by the whole recording duration. This distinction matters
+when comparing another tool's pause fraction or speaking-time definition.
 
 Warnings cover short/quiet recordings, clipping, insufficient speech, and missing
-F0, even on successful runs. These lightweight estimates do not use Praat or
-WebRTC VAD, despite legacy configuration comments naming those tools.
+F0/HNR, even on successful runs. F0/HNR now use Praat through the
+`praat-parselmouth` package; timing and RMS/clipping remain project calculations.
+
+### Praat F0 and HNR Methods
+
+The implementation calls `Sound.to_pitch_ac` (raw autocorrelation) and
+`Sound.to_harmonicity_cc` (cross-correlation harmonicity) on the whole
+mono-averaged signal at its native sample rate. It does not resample, trim a
+stable vowel segment automatically, or apply the separate RMS speech mask to
+Praat frames. These are deterministic signal-processing methods, not learned
+speech models. [Parselmouth API](https://parselmouth.readthedocs.io/en/stable/api_reference.html)
+
+| Parameter | Current setting |
+|---|---|
+| Pitch method | Praat raw autocorrelation |
+| Pitch floor / ceiling | 75 / 500 Hz |
+| Pitch time step | Automatic (`None`, configured as 0.0) |
+| HNR method | Praat cross-correlation |
+| HNR time step | 0.01 s |
+| HNR minimum pitch | 75 Hz |
+| HNR silence threshold | 0.1 (relative amplitude criterion, not dBFS) |
+| HNR periods per window | 1.0 |
+| Aggregation | Arithmetic mean of valid frames, separately for each measure |
+
+Unspecified pitch options retain the installed Parselmouth defaults; archive
+that version alongside the explicit settings. F0 excludes zero/unvoiced and
+nonfinite values. HNR excludes nonfinite values and Praat's -200 undefined
+sentinel; genuine negative HNR remains valid data and is not absolute-valued.
+Unlike grip force, HNR is a logarithmic ratio and must retain its sign.
+F0 and HNR can have different valid-frame sets and counts.
+
+F0 is measured in Hz; HNR in dB, conceptually
+`10 * log10(periodic_power / noise_power)`. Higher pitch does not imply higher
+HNR. HNR is not recording level (`rms_dbfs`) or calibrated sound pressure level.
+Praat documents cross-correlation harmonicity as its preferred harmonicity
+command. [Praat Harmonicity manual](https://www.fon.hum.uva.nl/praat/manual/Harmonicity.html)
+
+NEXA's selected raw-autocorrelation pitch method is explicitly named rather
+than described as the newest recommended method for every speech task. Modern
+Praat distinguishes filtered autocorrelation for intonation from raw methods
+for other voice/periodicity analyses. Method choice should follow the study's
+measurement objective. [Praat pitch-method guidance](https://www.fon.hum.uva.nl/praat/manual/how_to_choose_a_pitch_analysis_method.html)
+
+Very short recordings are not padded to fabricate frames: pitch is skipped below
+`3 / pitch_floor` seconds, and HNR below `(1 + periods_per_window) / minimum_pitch`.
+No valid estimate becomes JSON null and triggers the corresponding quality flag.
+Current checks flag duration below 1 s, RMS below -45 dBFS, clipping fraction
+above 0.001, estimated speech below 1 s, and missing F0/HNR. The configured
+minimum-valid-frame-percentage constants are not currently enforced; `VALID`
+means no implemented warning fired, not that research validity is established.
+
+### Versioning and Reference Check
+
+Speech module version `0.2.0-praat` records `analysis_parameters`, Parselmouth
+and embedded Praat versions, method names, explicit settings, aggregation, and
+channel/segment policy. Metadata is retained in the speech database and summary
+JSON and exposed through UI metric details. The verified Windows environment
+used Parselmouth 0.4.7 with Praat 6.1.38. Other deployments must record their
+actual versions; the dependency is not globally pinned by this documentation.
+
+On one operator-supplied 7.2-second, 48 kHz stereo PCM16 test recording, the old
+custom estimator produced 9.5705 dB HNR; the new Praat path produced 13.6891 dB
+and mean F0 114.3966 Hz. The operator reported PhonaLab HNR of 13.7 dB for that
+file, so the new result agrees at the displayed precision. PhonaLab states that
+it uses Parselmouth/Praat, but its complete per-analysis settings have not been
+independently established here. This single-file comparison is an engineering
+check, not a validation cohort, clinical accuracy claim, or proof of identical
+outputs on other recordings. [PhonaLab methods FAQ](https://www.phonalab.com/en/faq)
+
+Old custom results (including versions that returned a median under a mean-F0
+field name) are not automatically rewritten. Reanalyze both baseline and follow-up
+WAVs with the same method/settings; do not apply a fixed dB correction or pool
+legacy and Praat results. Keep original results with their provenance.
 
 All three tasks currently share the acoustic analysis core. Reading recordings
 also attach passage metadata in the record-and-assess flow; uploaded reading
@@ -566,3 +753,74 @@ reported hardware troubleshooting. It does not include private session contents.
 For exact current defaults, consult the relevant configuration/source file.
 README.md remains the shorter setup reference; ABOUT.md is the editable source
 for the accompanying program-guide PDF.
+
+## 11. Research Reproducibility, Validation, and References
+
+### Algorithm Inventory
+
+| Measurement | Algorithm/model | Output interpretation |
+|---|---|---|
+| Grip | Per-hand linear known-load calibration and absolute magnitude | Scalar force in N; no anatomical force vector |
+| CSI eye | Dark threshold, morphology, shape scoring; custom velocity onset detector | Pupil image coordinates and experimental latency |
+| Webcam eye | Pretrained MediaPipe Face Landmarker; custom blink/iris selection and onset detector | Iris image coordinates; not calibrated gaze |
+| Shoulder | Pretrained MediaPipe Pose Landmarker Lite; project angle differentiation | 2D elevation-speed proxy in deg/s |
+| Speech F0 | Praat raw autocorrelation via Parselmouth | Mean valid-frame fundamental frequency in Hz |
+| Speech HNR | Praat cross-correlation harmonicity via Parselmouth | Mean valid-frame harmonicity in dB |
+| Speech timing | Project RMS-energy segmentation | Estimated speech and internal pauses, not lexical timing |
+
+Pretrained landmark inference is not equivalent to validation for ALS research.
+No participant-specific model fitting, disease classifier, ALS severity model,
+or prediction of progression is implemented. The upstream models' performance
+does not establish NEXA accuracy on its intended population or hardware.
+
+### Recommended Study Record
+
+For a reproducible methods section and dataset manifest, retain:
+
+- Repository commit, operating system, architecture, Python executable/version, and installed package versions.
+- MediaPipe task-bundle source, local SHA-256 checksum, selected backend, and all modified configuration values.
+- Camera model, achieved frame/sample intervals, image size, exposure, gain, lighting, head support, and viewing geometry.
+- Microphone model, distance/orientation, input gain, audio enhancements, actual sample rate, channel conversion, task, and analyzed segment.
+- Grip reference mass, calibration date, unloaded/loaded counts per hand, fixture geometry, and independent check-load readings.
+- Raw recordings/traces where retained, quality flags, invalid-trial reasons, valid-frame counts, run logs, and operator deviations.
+
+These are recommended research records, not a claim that every item is already
+automatically captured. Speech currently stores richer algorithm metadata than
+the other services. Model checksums and a complete environment manifest are not
+automatically embedded in each assessment. The eye raw-trace UI retention gap
+described in Section 6 should be resolved before relying on saved sessions for
+reprocessing. Use de-identified manifests and protected storage for raw data.
+
+### Validation Plan, Not Completed Validation
+
+Define intended endpoints and acceptable error before data collection. Separate
+software correctness, reference-method agreement, repeatability, and clinical
+validity: passing one does not establish the others.
+
+- Grip: test several independent loads across the intended range, both loading and unloading, repeated zero returns, and left/right channels. Quantify bias, repeatability, hysteresis, and drift; absolute value can hide sign reversals.
+- Eye: compare actual target-display and eye-motion timing to an external reference. Evaluate CSI and webcam separately, including head motion, blinks, glasses, illumination, dropped frames, and invalid-trial rate.
+- Shoulder: compare the defined 2D proxy with a suitable reference in a controlled movement plane; separately investigate out-of-plane motion, occlusion, elbow flexion, and tracking loss. Do not claim a 3D joint-angle validation from a 2D comparison.
+- Speech: compare matched WAVs, channels, segments, and settings against direct Praat over diverse pitches, noise levels, tasks, and recording conditions. Report paired differences and error distributions, not only correlation or one rounded match.
+
+Report sample size, exclusions, units, per-task/backend results, and uncertainty.
+Define an acceptable error margin for the intended use rather than deriving it
+after seeing results. Do not treat nominal camera FPS, model confidence, or a
+`VALID` label as a metrological accuracy guarantee. If methods change, preserve
+the previous version and reprocess raw baselines consistently.
+
+### Primary References and Citation Notes
+
+References describe the upstream methods; repository code defines NEXA's
+specific integration, preprocessing, filtering, and aggregation. Cite the
+software version actually used in an experiment, not merely this guide's date.
+
+1. Jadoul, Y., Thompson, B., and de Boer, B. (2018). Introducing Parselmouth: A Python interface to Praat. *Journal of Phonetics*, 71, 1-15. [DOI](https://doi.org/10.1016/j.wocn.2018.07.001).
+2. [Parselmouth API reference](https://parselmouth.readthedocs.io/en/stable/api_reference.html): `Sound`, `to_pitch_ac`, and `to_harmonicity_cc`; use installed-version defaults when reproducing the analysis.
+3. [Praat Harmonicity manual](https://www.fon.hum.uva.nl/praat/manual/Harmonicity.html) and [pitch-method selection](https://www.fon.hum.uva.nl/praat/manual/how_to_choose_a_pitch_analysis_method.html): definitions and distinctions among analysis methods.
+4. [Google MediaPipe Face Landmarker Python guide](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/python): face/iris landmark inference and VIDEO-mode interface.
+5. [Google MediaPipe Pose Landmarker guide](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker): body landmarks and model family. NEXA selects the Lite task bundle and uses only the image-coordinate subset described above.
+6. [PhonaLab FAQ](https://www.phonalab.com/en/faq): the provider's description of its use of Parselmouth/Praat. The operator's reported comparison value is not a substitute for independent reference testing.
+
+The grip conversion, RMS timing gate, and saccade threshold rules are project
+implementations. They should not be presented as a named published clinical
+standard without a separate validated protocol and supporting evidence.

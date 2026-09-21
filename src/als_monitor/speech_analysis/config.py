@@ -72,7 +72,7 @@ VAD_FRAME_DURATION_MS = 30           # 10/20/30 ms required by WebRTC VAD
 VAD_AGGRESSIVENESS = 2               # WebRTC VAD: 0 (least) - 3 (most aggressive)
 
 # =====================================================================
-# F0 ANALYSIS (autocorrelation estimate)
+# F0 ANALYSIS (Praat raw autocorrelation via Parselmouth)
 # =====================================================================
 F0_PITCH_FLOOR_HZ = 75.0
 F0_PITCH_CEILING_HZ = 500.0
@@ -80,7 +80,7 @@ F0_TIME_STEP = 0.0            # 0.0 = Praat default (= 0.75 / floor)
 F0_MIN_VALID_FRAME_PERCENT = 30.0   # below this, flag INVALID_F0
 
 # =====================================================================
-# HNR ANALYSIS (autocorrelation estimate)
+# HNR ANALYSIS (Praat cross-correlation via Parselmouth)
 # =====================================================================
 HNR_TIME_STEP = 0.01
 HNR_MIN_PITCH_HZ = 75.0
@@ -117,5 +117,5 @@ QF_WAV_FORMAT_ERROR = "WAV_FORMAT_ERROR"
 # =====================================================================
 # APPLICATION / VERSIONING
 # =====================================================================
-NEXA_SPEECH_MODULE_VERSION = "0.1.0-step1"
+NEXA_SPEECH_MODULE_VERSION = "0.2.0-praat"
 PARTICIPANT_ID_DEFAULT = "P000"

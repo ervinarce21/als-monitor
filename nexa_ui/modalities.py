@@ -165,7 +165,7 @@ class Modality:
                     metrics[metric.key] = None
             else:
                 metrics[metric.key] = metric.compute(rows)
-        for key in ("task", "quality_status", "quality_flags"):
+        for key in ("task", "quality_status", "quality_flags", "analysis_parameters", "software_version"):
             if key in direct:
                 metrics[key] = direct[key]
         return metrics

@@ -1,4 +1,4 @@
-"""Dependency-light acoustic measurements for PCM WAV recordings."""
+"""PCM WAV timing measurements and Praat F0/HNR via Parselmouth."""
 
 import math
 import wave
@@ -35,8 +35,13 @@ def _speech_timing(samples, sample_rate):
     if not len(frames):
         return 0.0, 0.0, 0, np.zeros(0, dtype=bool)
     rms = np.sqrt(np.mean(frames * frames, axis=1) + 1e-12)
-    threshold = max(10 ** (config.QC_MIN_RMS_DBFS / 20),
-                    float(np.percentile(rms, 20)) * 2.5)
+    absolute_floor = 10 ** (config.QC_MIN_RMS_DBFS / 20)
+    noise_based_threshold = float(np.percentile(rms, 20)) * 2.5
+    # In a sustained-vowel recording the 20th percentile is speech, not
+    # background noise. Cap the adaptive threshold below normal signal energy
+    # so an evenly voiced recording is not incorrectly treated as silence.
+    signal_cap = float(np.percentile(rms, 80)) * 0.5
+    threshold = max(absolute_floor, min(noise_based_threshold, signal_cap))
     voiced = rms >= threshold
     frame_seconds = frame_size / sample_rate
     min_speech = max(1, round(config.MIN_SPEECH_SEGMENT_SECONDS / frame_seconds))
@@ -71,33 +76,55 @@ def _speech_timing(samples, sample_rate):
 
 
 def _pitch_hnr(samples, sample_rate):
-    frame_size = max(256, int(sample_rate * 0.04))
-    hop = max(1, frame_size // 2)
-    min_lag = max(1, int(sample_rate / config.F0_PITCH_CEILING_HZ))
-    max_lag = min(frame_size - 1, int(sample_rate / config.F0_PITCH_FLOOR_HZ))
-    pitches = []
-    hnrs = []
-    for offset in range(0, max(0, len(samples) - frame_size + 1), hop):
-        frame = samples[offset:offset + frame_size]
-        frame = frame - np.mean(frame)
-        energy = float(np.dot(frame, frame))
-        if energy < 1e-6:
-            continue
-        corr = np.correlate(frame, frame, mode="full")[frame_size - 1:]
-        corr /= max(corr[0], 1e-12)
-        section = corr[min_lag:max_lag + 1]
-        lag = min_lag + int(np.argmax(section))
-        strength = float(corr[lag])
-        if strength < 0.3:
-            continue
-        pitches.append(sample_rate / lag)
-        hnrs.append(10.0 * math.log10(max(strength, 1e-6) /
-                                      max(1.0 - strength, 1e-6)))
-    return (_mean_or_none(pitches), _mean_or_none(hnrs), len(pitches))
+    try:
+        import parselmouth
+    except ImportError as exc:
+        raise ValueError("Praat analysis requires praat-parselmouth. Install it with "
+                         "python -m pip install praat-parselmouth in the speech environment.") from exc
+    metadata = {
+        "engine": "praat-parselmouth",
+        "parselmouth_version": parselmouth.__version__,
+        "praat_version": parselmouth.PRAAT_VERSION,
+        "pitch_method": "raw_autocorrelation",
+        "pitch_floor_hz": config.F0_PITCH_FLOOR_HZ,
+        "pitch_ceiling_hz": config.F0_PITCH_CEILING_HZ,
+        "pitch_time_step": config.F0_TIME_STEP,
+        "hnr_method": "cross_correlation",
+        "hnr_time_step": config.HNR_TIME_STEP,
+        "hnr_min_pitch_hz": config.HNR_MIN_PITCH_HZ,
+        "hnr_silence_threshold": config.HNR_SILENCE_THRESHOLD,
+        "hnr_periods_per_window": config.HNR_PERIODS_PER_WINDOW,
+        "aggregation": "arithmetic_mean_of_valid_frames",
+        "segment": "whole_recording",
+        "channels": "averaged_to_mono",
+    }
+    pitches = np.array([])
+    hnrs = np.array([])
+    if len(samples):
+        sound = parselmouth.Sound(samples, sampling_frequency=sample_rate)
+        # Do not pad short inputs or apply the separate RMS timing mask to Praat.
+        if sound.duration >= 3.0 / config.F0_PITCH_FLOOR_HZ:
+            pitch = sound.to_pitch_ac(
+                time_step=config.F0_TIME_STEP or None,
+                pitch_floor=config.F0_PITCH_FLOOR_HZ,
+                pitch_ceiling=config.F0_PITCH_CEILING_HZ)
+            pitches = pitch.selected_array["frequency"]
+        if sound.duration >= (1.0 + config.HNR_PERIODS_PER_WINDOW) / config.HNR_MIN_PITCH_HZ:
+            harmonicity = sound.to_harmonicity_cc(
+                time_step=config.HNR_TIME_STEP,
+                minimum_pitch=config.HNR_MIN_PITCH_HZ,
+                silence_threshold=config.HNR_SILENCE_THRESHOLD,
+                periods_per_window=config.HNR_PERIODS_PER_WINDOW)
+            hnrs = harmonicity.values.ravel()
+    valid_pitch = pitches[np.isfinite(pitches) & (pitches > 0)]
+    # Praat's -200 sentinel means undefined; real negative HNR is retained.
+    valid_hnr = hnrs[np.isfinite(hnrs) & (hnrs != -200)]
+    return (_mean_or_none(valid_pitch), _mean_or_none(valid_hnr), len(valid_pitch),
+            len(valid_hnr), metadata)
 
 
 def _mean_or_none(values):
-    return float(np.mean(values)) if values else None
+    return float(np.mean(values)) if len(values) else None
 
 
 def analyze_wav(path, task):
@@ -106,8 +133,8 @@ def analyze_wav(path, task):
     rms = float(np.sqrt(np.mean(samples * samples))) if len(samples) else 0.0
     rms_dbfs = 20.0 * math.log10(max(rms, 1e-12))
     clipping = float(np.mean(np.abs(samples) >= 0.999)) if len(samples) else 0.0
-    speech, pauses, pause_count, _ = _speech_timing(samples, sample_rate)
-    mean_f0, hnr, voiced_frames = _pitch_hnr(samples, sample_rate)
+    speech, pauses, pause_count, voiced = _speech_timing(samples, sample_rate)
+    mean_f0, hnr, voiced_frames, hnr_frames, parameters = _pitch_hnr(samples, sample_rate)
 
     flags = []
     if duration < config.QC_MIN_DURATION_SECONDS:
@@ -120,6 +147,8 @@ def analyze_wav(path, task):
         flags.append(config.QF_INSUFFICIENT_SPEECH)
     if mean_f0 is None:
         flags.append(config.QF_INVALID_F0)
+    if hnr is None:
+        flags.append(config.QF_INVALID_HNR)
     quality = config.QUALITY_VALID if not flags else config.QUALITY_WARNING
 
     return {
@@ -135,7 +164,9 @@ def analyze_wav(path, task):
         "rms_dbfs": rms_dbfs,
         "clipping_fraction": clipping,
         "voiced_frames": voiced_frames,
+        "hnr_valid_frames": hnr_frames,
+        "analysis_parameters": parameters,
+        "software_version": config.NEXA_SPEECH_MODULE_VERSION,
         "quality_status": quality,
         "quality_flags": flags,
     }
-

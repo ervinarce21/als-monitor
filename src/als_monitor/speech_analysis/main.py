@@ -255,6 +255,7 @@ def _store_analysis(wav_path, task, metrics, participant_id, session_id,
              metrics["pause_percentage"], metrics["mean_f0_hz"],
              metrics["hnr_db"], metrics["quality_status"],
              json.dumps(metrics["quality_flags"]), json.dumps({
+                 **metrics.get("analysis_parameters", {}),
                  "pitch_floor_hz": config.F0_PITCH_FLOOR_HZ,
                  "pitch_ceiling_hz": config.F0_PITCH_CEILING_HZ,
                  "pause_threshold_sec": config.PAUSE_THRESHOLD_SECONDS,

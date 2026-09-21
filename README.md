@@ -327,6 +327,35 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 
 ## Speech analysis
 
+F0 and HNR now use Praat via `praat-parselmouth` (not the unrelated
+`parselmouth` package). Install in the Python environment running speech:
+
+```bash
+# Raspberry Pi
+.venv/bin/python -m pip install praat-parselmouth
+```
+
+```powershell
+# Windows project environment
+.\.venv\Scripts\python.exe -m pip install praat-parselmouth
+```
+
+Pitch uses Praat raw autocorrelation with a 75-500 Hz range and automatic time
+step. HNR uses cross-correlation with a 0.01 s step, 75 Hz minimum pitch,
+0.1 silence threshold, and one period per window. Both report arithmetic means
+of valid frames across the whole mono-averaged recording; undefined HNR frames
+are excluded, but real negative HNR values are retained. RMS speech/pause timing
+remains separate and does not gate Praat frames. Settings are in speech config.
+
+Results include engine versions and analysis parameters in JSON and the speech
+database. Existing recordings/results are not rewritten. Reanalyze both baseline
+and follow-up WAVs with the same settings before comparing them with the new
+engine. Matching PhonaLab requires matching its settings/preprocessing as well;
+using Praat alone is not a guarantee of identical output. No custom-estimator
+fallback is used when Parselmouth is missing. ARM/Python wheel availability must
+be checked on the Pi before deployment; Windows verification does not verify Pi
+installation. ABOUT.md and its PDF describe the previous speech implementation.
+
 Open the interactive speech menu:
 
 ```bash
