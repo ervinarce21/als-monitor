@@ -52,8 +52,28 @@ Open the project directory:
 ```bash
 cd "$HOME/Documents/ALS Monitor/als-monitor"
 python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install sounddevice
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
+.venv/bin/python -m pip install sounddevice praat-parselmouth
 ```
+
+The package is installed as `praat-parselmouth` but imported in Python as
+`parselmouth`. Verify that the project environment can load it:
+
+```bash
+.venv/bin/python -c "import parselmouth; print(parselmouth.VERSION)"
+```
+
+If `praat-parselmouth` has to build from source and installation fails, install
+the compiler and Python headers, then retry:
+
+```bash
+sudo apt install -y build-essential python3-dev
+.venv/bin/python -m pip install praat-parselmouth
+```
+
+Check the operating-system architecture with `uname -m`; `aarch64` identifies
+64-bit Raspberry Pi OS. Do not install the unrelated package named only
+`parselmouth`.
 
 Run all commands below from this directory.
 
@@ -328,11 +348,14 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 ## Speech analysis
 
 F0 and HNR now use Praat via `praat-parselmouth` (not the unrelated
-`parselmouth` package). Install in the Python environment running speech:
+`parselmouth` package). The Raspberry Pi setup above installs it in `.venv`.
+To install it separately in the Python environment running speech:
 
 ```bash
 # Raspberry Pi
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
 .venv/bin/python -m pip install praat-parselmouth
+.venv/bin/python -c "import parselmouth; print(parselmouth.VERSION)"
 ```
 
 ```powershell
