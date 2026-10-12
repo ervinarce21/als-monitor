@@ -14,8 +14,11 @@ deeper in the code base.
 CAMERA_BACKEND = "usb-eye"  # USB OV9281; alternatives: "csi", "webcam".
 WEBCAM_INDEX = 0
 USB_EYE_FOURCC = "MJPG"     # high-rate USB OV9281 transport; verify with v4l2-ctl.
+USB_EYE_WIDTH = 640
+USB_EYE_HEIGHT = 480
+USB_EYE_FPS = 120            # exact discrete mode advertised by the USB camera.
 CAMERA_MODEL = "ov9281"     # Used only by the CSI/Picamera2 backend.
-CAMERA_WIDTH = 640          # OV9281 native is 1280x800; 640x400 is a fast crop/bin
+CAMERA_WIDTH = 640          # CSI/full-face fallback dimensions.
 CAMERA_HEIGHT = 400
 CAMERA_FPS = 120            # requested frame rate (FrameDurationLimits)
 

@@ -62,23 +62,38 @@ class WebcamCamera:
 
     def __init__(self):
         self.cap = None
-        self.width = config.CAMERA_WIDTH
-        self.height = config.CAMERA_HEIGHT
+        if config.CAMERA_BACKEND == "usb-eye":
+            self.width = config.USB_EYE_WIDTH
+            self.height = config.USB_EYE_HEIGHT
+            self.fps = config.USB_EYE_FPS
+        else:
+            self.width = config.CAMERA_WIDTH
+            self.height = config.CAMERA_HEIGHT
+            self.fps = config.CAMERA_FPS
 
     def start(self):
         import cv2
         try:
-            self.cap = cv2.VideoCapture(config.WEBCAM_INDEX)
+            device_path = "/dev/video%d" % config.WEBCAM_INDEX
+            if os.name != "nt" and os.path.exists(device_path):
+                # Force the native V4L2 backend. CAP_ANY may route UVC devices
+                # through FFmpeg or OpenCV's depth-camera plugin and reject a
+                # perfectly valid /dev/videoN capture node.
+                self.cap = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
+            else:
+                self.cap = cv2.VideoCapture(config.WEBCAM_INDEX)
             if not self.cap.isOpened():
-                raise CameraError("Could not open webcam index %d. Check connection, "
-                                  "camera permissions, and other camera applications."
-                                  % config.WEBCAM_INDEX)
+                raise CameraError(
+                    "Could not open USB camera %s (index %d) with OpenCV. "
+                    "Check v4l2-ctl --list-devices, camera permissions, and "
+                    "whether another application owns the device."
+                    % (device_path, config.WEBCAM_INDEX))
             if config.CAMERA_BACKEND == "usb-eye" and config.USB_EYE_FOURCC:
                 fourcc = cv2.VideoWriter_fourcc(*config.USB_EYE_FOURCC)
                 self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            self.cap.set(cv2.CAP_PROP_FPS, config.CAMERA_FPS)
+            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             reported_fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC))
             fourcc_text = "".join(chr((reported_fourcc >> (8 * i)) & 0xFF)

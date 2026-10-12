@@ -255,8 +255,9 @@ whether to launch a file, select **Execute**.
 ### Webcam with MediaPipe
 
 The USB OV9281 is the default eye camera and uses OpenCV camera index 0 with
-the close-up dark-pupil tracker. It requests MJPEG at `640x400` and `120 FPS`
-because uncompressed USB video may not have enough bandwidth at that rate:
+the close-up dark-pupil tracker. It requests MJPEG at `640x480` and `120 FPS`,
+an exact mode advertised by the camera, because `640x400` is exposed only at
+`240 FPS` on this model and uncompressed USB video lacks sufficient bandwidth:
 
 ```bash
 nexa preview --camera usb-eye --webcam-index 0
