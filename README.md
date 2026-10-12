@@ -27,6 +27,19 @@ excluded from velocity samples. The angle is a 2D shoulder-to-wrist elevation
 relative to image vertical, not a 3D joint angle. Prior contour-based results
 are not comparable with the new pose-based measurements.
 
+Completed NEXA shoulder runs include `shoulder_annotated.avi`, containing the
+mirrored camera view, tracked shoulder/wrist line, measurements, and status
+overlay. Oculomotor runs include `eye_annotated.avi`, containing the grayscale
+eye image with the detected pupil circle, crosshair, confidence, and frame
+timestamp. These MJPEG AVI files are stored beside the run's CSV and JSON files
+under `nexa_data/raw/session_*/`. Video recording uses the same captured frames
+as analysis and does not open the camera a second time.
+
+To replay saved media, open **Session history**, select a session, choose
+**View assessments**, select an oculomotor, speech, or motor assessment, and
+click **View recording**. The button is available only when that run's AVI or
+WAV recording exists and opens it in the system's default media player.
+
 ## Raspberry Pi setup
 
 From the Raspberry Pi terminal:

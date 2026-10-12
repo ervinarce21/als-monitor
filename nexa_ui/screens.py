@@ -201,6 +201,8 @@ def show_session_results_dialog(parent, db, session_id):
     button_row = QHBoxLayout()
     details_btn = QPushButton("Show details")
     details_btn.setEnabled(bool(runs))
+    recording_btn = QPushButton("View recording")
+    recording_btn.setEnabled(False)
     baseline_btn = QPushButton("Set as baseline")
     compare_btn = QPushButton("Compare to baseline")
     baseline_btn.setEnabled(False)
@@ -208,6 +210,7 @@ def show_session_results_dialog(parent, db, session_id):
     close_btn = QPushButton("Close")
     close_btn.clicked.connect(dialog.accept)
     button_row.addWidget(details_btn)
+    button_row.addWidget(recording_btn)
     button_row.addWidget(baseline_btn)
     button_row.addWidget(compare_btn)
     button_row.addStretch()
@@ -234,6 +237,37 @@ def show_session_results_dialog(parent, db, session_id):
     details_btn.clicked.connect(show_selected_run)
     table.doubleClicked.connect(lambda _index: show_selected_run())
 
+    def selected_recording_path():
+        row = table.currentRow()
+        if row < 0 or row >= len(runs):
+            return None
+        run = runs[row]
+        filename = {
+            "oculomotor": "eye_annotated.avi",
+            "speech": "speech_recording.wav",
+            "motor": "shoulder_annotated.avi",
+        }.get(run["modality"])
+        raw_path = str(run["raw_path"] or "")
+        if not filename or not raw_path:
+            return None
+        path = os.path.join(raw_path, filename)
+        return path if os.path.isfile(path) else None
+
+    def view_selected_recording():
+        path = selected_recording_path()
+        if path is None:
+            QMessageBox.information(
+                dialog, "Recording unavailable",
+                "No saved recording was found for this assessment.")
+            return
+        if not _open_file(path):
+            QMessageBox.warning(
+                dialog, "Could not open recording",
+                "The recording exists but could not be opened with the "
+                "system media player:\n%s" % path)
+
+    recording_btn.clicked.connect(view_selected_recording)
+
     def selected_assessment_run():
         row = table.currentRow()
         if row < 0 or row >= len(runs):
@@ -248,6 +282,7 @@ def show_session_results_dialog(parent, db, session_id):
         return run, task
 
     def update_baseline_actions():
+        recording_btn.setEnabled(selected_recording_path() is not None)
         run, task = selected_assessment_run()
         valid = run is not None
         baseline_btn.setEnabled(valid)

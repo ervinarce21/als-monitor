@@ -213,7 +213,7 @@ OCULOMOTOR = Modality(
     key="oculomotor",
     name="Oculomotor",
     subtitle="Visually guided prosaccade latency (OV9281 IR camera)",
-    output_files=["eye_results.csv", "eye_summary.json"],
+    output_files=["eye_results.csv", "eye_summary.json", "eye_annotated.avi"],
     metrics=[
         Metric("valid_trials", "Valid trials", "valid", "sum", "", 0),
         Metric("mean_latency_ms", "Mean latency", "prosaccade_latency_ms", "mean",
@@ -241,7 +241,8 @@ MOTOR = Modality(
     key="motor",
     name="Motor / Movement",
     subtitle="Camera-based movement analysis (USB webcam)",
-    output_files=["shoulder_summary.json", "shoulder_velocity.csv", "shoulder_analysis.png"],
+    output_files=["shoulder_summary.json", "shoulder_velocity.csv",
+                  "shoulder_analysis.png", "shoulder_annotated.avi"],
     metrics=[
         Metric("peak_velocity", "Peak angular velocity", "peak_velocity", "last", "deg/s", 1),
     ],

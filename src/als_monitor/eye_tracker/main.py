@@ -13,6 +13,7 @@ import sys
 import traceback
 import json
 import os
+from datetime import datetime
 
 from . import config
 from . import results as results_mod
@@ -23,7 +24,18 @@ from .sampler import EyeSampler
 
 def main(argv=None):
     configure_camera(argv)
-    sampler = EyeSampler(buffer_seconds=10.0, expected_fps=config.CAMERA_FPS)
+    output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+    if not output_dir:
+        output_dir = config.OUTPUT_DIR
+    video_path = None
+    if config.SAVE_ANNOTATED_VIDEO:
+        os.makedirs(output_dir, exist_ok=True)
+        video_name = ("eye_annotated.avi" if os.environ.get("NEXA_OUTPUT_DIR")
+                      else "eye_annotated_%s.avi" %
+                      datetime.now().strftime("%Y%m%d_%H%M%S"))
+        video_path = os.path.join(output_dir, video_name)
+    sampler = EyeSampler(buffer_seconds=10.0, expected_fps=config.CAMERA_FPS,
+                         video_path=video_path)
     test = None
     trials = []
     exit_code = 0
@@ -66,8 +78,9 @@ def main(argv=None):
             summary["timestamp_mode"] = (
                 "sensor_with_receive_fallback" if config.CAMERA_BACKEND == "csi"
                 else "receive_time")
-            output_dir = os.environ.get("NEXA_OUTPUT_DIR")
-            if output_dir:
+            integrated_output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+            if integrated_output_dir:
+                output_dir = integrated_output_dir
                 os.makedirs(output_dir, exist_ok=True)
                 csv_path = results_mod.save_results_csv(
                     trials, os.path.join(output_dir, "eye_results.csv"))

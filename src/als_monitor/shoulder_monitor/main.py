@@ -135,6 +135,9 @@ def main():
             "Select arm to evaluate (RIGHT / LEFT): ").strip().upper()
     if arm_choice not in ("RIGHT", "LEFT"):
         arm_choice = "RIGHT"
+    output_dir = os.environ.get("NEXA_OUTPUT_DIR")
+    analysis_dir = output_dir or os.path.join(
+        "data", "shoulder_monitor", time.strftime("%Y%m%d_%H%M%S"))
 
     try:
         pose = ShoulderPose()
@@ -166,6 +169,9 @@ def main():
     finished_at = None
     start_clicked = [False]
     start_bounds = (DISPLAY_WIDTH - 200, 25, DISPLAY_WIDTH - 20, 85)
+    video_writer = None
+    video_path = os.path.join(analysis_dir, "shoulder_annotated.avi")
+    finish_video_after_frame = False
 
     def on_mouse(event, x, y, flags, param):
         x1, y1, x2, y2 = start_bounds
@@ -207,6 +213,19 @@ def main():
                 start_time = current_time
                 finished_at = None
                 state = "RECORDING"
+                os.makedirs(analysis_dir, exist_ok=True)
+                video_writer = cv2.VideoWriter(
+                    video_path, cv2.VideoWriter_fourcc(*"MJPG"),
+                    max(1.0, float(cap.get(cv2.CAP_PROP_FPS) or 30.0)),
+                    (DISPLAY_WIDTH, DISPLAY_HEIGHT), True)
+                if video_writer.isOpened():
+                    print("[video] Saving annotated shoulder video: %s" %
+                          video_path, flush=True)
+                else:
+                    print("[video] Could not create annotated shoulder video: %s" %
+                          video_path, flush=True)
+                    video_writer.release()
+                    video_writer = None
                 print("[START] Recording %s arm for %.1f seconds." %
                       (arm_choice, trial_duration), flush=True)
             angle = (calculate_shoulder_elevation_angle(shoulder_pt, wrist_pt)
@@ -237,9 +256,6 @@ def main():
                     else:
                         peak_velocity = max(velocity_buffer, default=0.0)
                     save_to_db(participant_id, arm_choice, peak_velocity)
-                    output_dir = os.environ.get("NEXA_OUTPUT_DIR")
-                    analysis_dir = output_dir or os.path.join(
-                        "data", "shoulder_monitor", time.strftime("%Y%m%d_%H%M%S"))
                     save_velocity_analysis(analysis_dir, velocity_times, velocity_buffer,
                                            peak_velocity, arm_choice)
                     print("[ANALYSIS] Saved velocity plot and samples: %s" % analysis_dir)
@@ -256,6 +272,7 @@ def main():
                             }, handle, indent=2)
                     state = "FINISHED"
                     finished_at = current_time
+                    finish_video_after_frame = True
 
             if tracked:
                 cv2.circle(frame, wrist_pt, 10, (0, 255, 0), -1)
@@ -279,6 +296,14 @@ def main():
                         "Cancel start" if state == "WAITING" else "Start",
                         (x1 + 10, y1 + 38), cv2.FONT_HERSHEY_SIMPLEX,
                         0.65, (255, 255, 255), 2)
+            if video_writer is not None:
+                video_writer.write(frame)
+                if finish_video_after_frame:
+                    video_writer.release()
+                    video_writer = None
+                    finish_video_after_frame = False
+                    print("[video] Annotated shoulder video saved: %s" %
+                          video_path, flush=True)
             cv2.imshow(WINDOW_NAME, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -304,6 +329,8 @@ def main():
                 break
     finally:
         pose.close()
+        if video_writer is not None:
+            video_writer.release()
         cap.release()
         cv2.destroyAllWindows()
     return 0
