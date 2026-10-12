@@ -11,9 +11,10 @@ deeper in the code base.
 # different pixel formats and controls. Everything that depends on that
 # lives here and NOWHERE else.
 # =====================================================================
-CAMERA_BACKEND = "csi"      # "csi" (Picamera2) or "webcam" (OpenCV).
+CAMERA_BACKEND = "usb-eye"  # USB OV9281; alternatives: "csi", "webcam".
 WEBCAM_INDEX = 0
-CAMERA_MODEL = "ov9281"     # Match the intended eye sensor, not the default webcam.
+USB_EYE_FOURCC = "MJPG"     # high-rate USB OV9281 transport; verify with v4l2-ctl.
+CAMERA_MODEL = "ov9281"     # Used only by the CSI/Picamera2 backend.
 CAMERA_WIDTH = 640          # OV9281 native is 1280x800; 640x400 is a fast crop/bin
 CAMERA_HEIGHT = 400
 CAMERA_FPS = 120            # requested frame rate (FrameDurationLimits)

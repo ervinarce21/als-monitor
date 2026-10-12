@@ -11,6 +11,8 @@ from .pupil_tracker import PupilSample, PupilTracker
 
 
 def create_tracker():
+    # A USB-connected eye camera still supplies a close-up pupil image. Only
+    # the full-face webcam mode uses MediaPipe iris landmarks.
     return FaceTracker() if config.CAMERA_BACKEND == "webcam" else PupilTracker()
 
 

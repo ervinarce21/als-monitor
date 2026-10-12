@@ -30,7 +30,7 @@ class CameraError(RuntimeError):
 
 def configure_camera(argv=None, module="als_monitor.eye_tracker"):
     parser = argparse.ArgumentParser(description="NEXA eye camera options")
-    parser.add_argument("--camera", choices=("csi", "webcam"),
+    parser.add_argument("--camera", choices=("usb-eye", "csi", "webcam"),
                         default=config.CAMERA_BACKEND)
     parser.add_argument("--webcam-index", type=int, default=config.WEBCAM_INDEX)
     args = parser.parse_args(argv)
@@ -52,13 +52,13 @@ def configure_camera(argv=None, module="als_monitor.eye_tracker"):
 def create_camera():
     if config.CAMERA_BACKEND == "csi":
         return IRCamera()
-    if config.CAMERA_BACKEND == "webcam":
+    if config.CAMERA_BACKEND in ("usb-eye", "webcam"):
         return WebcamCamera()
     raise CameraError("Unknown camera backend: %s" % config.CAMERA_BACKEND)
 
 
 class WebcamCamera:
-    """OpenCV capture; timestamps describe frame receipt, not sensor exposure."""
+    """OpenCV USB capture; timestamps describe receipt, not sensor exposure."""
 
     def __init__(self):
         self.cap = None
@@ -73,14 +73,24 @@ class WebcamCamera:
                 raise CameraError("Could not open webcam index %d. Check connection, "
                                   "camera permissions, and other camera applications."
                                   % config.WEBCAM_INDEX)
+            if config.CAMERA_BACKEND == "usb-eye" and config.USB_EYE_FOURCC:
+                fourcc = cv2.VideoWriter_fourcc(*config.USB_EYE_FOURCC)
+                self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             self.cap.set(cv2.CAP_PROP_FPS, config.CAMERA_FPS)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            print("[camera] Webcam index %d; reported FPS %.1f. "
+            reported_fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+            fourcc_text = "".join(chr((reported_fourcc >> (8 * i)) & 0xFF)
+                                  for i in range(4)).strip("\x00") or "unknown"
+            print("[camera] USB camera index %d; format %s; size %.0fx%.0f; "
+                  "reported FPS %.1f. "
                   "Receive-time timestamps include camera/driver buffering; "
                   "low frame rates may invalidate trials."
-                  % (config.WEBCAM_INDEX, self.cap.get(cv2.CAP_PROP_FPS)), flush=True)
+                  % (config.WEBCAM_INDEX, fourcc_text,
+                     self.cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+                     self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                     self.cap.get(cv2.CAP_PROP_FPS)), flush=True)
             time.sleep(config.CAMERA_WARMUP_S)
         except Exception as exc:
             self.stop()

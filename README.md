@@ -44,6 +44,7 @@ sudo apt install -y \
   python3-venv \
   libportaudio2 \
   alsa-utils \
+  v4l-utils \
   python3-serial
 ```
 
@@ -186,8 +187,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop-shortcuts.ps1
   uses camera index `0` by default.
 - **Speech analysis:** Connect a microphone and run
   `nexa speech list-microphones` before recording.
-- **Eye tracker:** CSI mode requires Raspberry Pi Picamera2. Webcam mode uses
-  OpenCV and MediaPipe and is available on Windows; see Webcam with MediaPipe.
+- **Eye tracker:** The USB OV9281 uses OpenCV with the close-up dark-pupil
+  tracker. CSI mode requires Raspberry Pi Picamera2. Full-face webcam mode uses
+  OpenCV and MediaPipe; see Webcam with MediaPipe.
 
 ### Windows troubleshooting
 
@@ -252,7 +254,25 @@ whether to launch a file, select **Execute**.
 
 ### Webcam with MediaPipe
 
-CSI remains the default. Webcam mode uses the default OpenCV camera (index 0),
+The USB OV9281 is the default eye camera and uses OpenCV camera index 0 with
+the close-up dark-pupil tracker. It requests MJPEG at `640x400` and `120 FPS`
+because uncompressed USB video may not have enough bandwidth at that rate:
+
+```bash
+nexa preview --camera usb-eye --webcam-index 0
+nexa eye --camera usb-eye --webcam-index 0
+```
+
+On Raspberry Pi, inspect the modes actually advertised by the USB camera:
+
+```bash
+v4l2-ctl --device=/dev/video0 --list-formats-ext
+```
+
+The startup log prints the negotiated format, dimensions, and frame rate. If
+the OV9281 is not `/dev/video0`, change `--webcam-index` accordingly.
+
+Full-face webcam mode uses the default OpenCV camera (index 0),
 MediaPipe Face Landmarker iris coordinates, and the working `.venv-shoulder`
 environment when available. No camera-index prompt is shown in the UI. On a
 laptop, the default camera may be built-in rather than USB; the optional
@@ -267,8 +287,9 @@ nexa preview --camera webcam
 nexa eye --camera webcam
 ```
 
-In NEXA UI, select Oculomotor, then Webcam. Keep the full face visible and the
-head still. CSI uses the original dark-pupil tracker; webcam uses the iris model.
+In NEXA UI, select Oculomotor, then Full-face webcam. Keep the full face visible
+and the head still. USB eye and CSI modes use the dark-pupil tracker; full-face
+webcam mode uses the iris model.
 Webcam coordinates are image pixels, not calibrated screen gaze. Receive-time
 timestamps include USB/driver delay, and head movement affects measurements.
 Low capture/inference rates may invalidate trials under the existing quality

@@ -682,10 +682,15 @@ class SessionScreen(QWidget):
         if key == "oculomotor":
             choice, accepted = QInputDialog.getItem(
                 self, "Eye tracking camera", "Camera",
-                ["CSI camera (default)", "Webcam"], 0, False)
+                ["USB eye camera (OV9281)", "CSI camera", "Full-face webcam"],
+                0, False)
             if not accepted:
                 return
-            backend = "webcam" if choice == "Webcam" else "csi"
+            backend = {
+                "USB eye camera (OV9281)": "usb-eye",
+                "CSI camera": "csi",
+                "Full-face webcam": "webcam",
+            }[choice]
             index = 0
             modality = copy.copy(modality)
             modality.args = ["--camera", backend, "--webcam-index", str(index)]
@@ -693,7 +698,12 @@ class SessionScreen(QWidget):
             modality.operator_checklist = list(modality.operator_checklist)
             modality.operator_checklist[0] = (
                 "%s aimed at one eye; pupil clearly visible in frame." % choice)
-            if backend == "webcam":
+            if backend == "usb-eye":
+                modality.operator_checklist[0] = (
+                    "USB OV9281 selected; camera aimed closely at one eye.")
+                modality.operator_checklist.append(
+                    "USB timestamps are measured when frames arrive; avoid hubs and other USB traffic.")
+            elif backend == "webcam":
                 modality.operator_checklist[0] = "Default webcam connected; full face and both eyes visible."
                 modality.operator_checklist.append(
                     "Webcam timing is approximate; low frame rates can invalidate trials.")

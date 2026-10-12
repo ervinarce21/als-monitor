@@ -61,9 +61,11 @@ def main(argv=None):
             summary["tracking_method"] = ("mediapipe_iris" if config.CAMERA_BACKEND == "webcam"
                                           else "dark_pupil")
             summary["camera_model"] = (config.CAMERA_MODEL if config.CAMERA_BACKEND == "csi"
-                                       else "webcam:%d" % config.WEBCAM_INDEX)
-            summary["timestamp_mode"] = ("receive_time" if config.CAMERA_BACKEND == "webcam"
-                                         else "sensor_with_receive_fallback")
+                                       else "%s:%d" % (config.CAMERA_BACKEND,
+                                                       config.WEBCAM_INDEX))
+            summary["timestamp_mode"] = (
+                "sensor_with_receive_fallback" if config.CAMERA_BACKEND == "csi"
+                else "receive_time")
             output_dir = os.environ.get("NEXA_OUTPUT_DIR")
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
