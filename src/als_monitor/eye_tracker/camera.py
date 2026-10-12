@@ -149,6 +149,7 @@ class IRCamera:
         self._offset = None
         self._format = config.CAMERA_FORMAT
         self._warned_timestamp = False
+        self._logged_capture_metadata = False
         self.width = config.CAMERA_WIDTH
         self.height = config.CAMERA_HEIGHT
 
@@ -208,6 +209,9 @@ class IRCamera:
         try:
             stream_cfg = self.picam2.camera_configuration()["main"]
             self.width, self.height = stream_cfg["size"]
+            print("[camera] Stream format=%s size=%sx%s stride=%s target_fps=%s" % (
+                stream_cfg.get("format", self._format), self.width, self.height,
+                stream_cfg.get("stride", "unknown"), config.CAMERA_FPS), flush=True)
         except Exception:
             pass
 
@@ -256,12 +260,22 @@ class IRCamera:
         try:
             array = request.make_array("main")
             metadata = request.get_metadata()
+            # Own a tightly packed grayscale copy before libcamera can reuse
+            # this request's buffer at the next 120 FPS capture.
+            gray = self._to_gray(array).copy(order="C")
         finally:
             request.release()
 
         recv_time = time.perf_counter()
+        if not self._logged_capture_metadata:
+            print("[camera] First frame exposure_us=%s analogue_gain=%s "
+                  "frame_duration_us=%s" % (
+                      metadata.get("ExposureTime", "unknown"),
+                      metadata.get("AnalogueGain", "unknown"),
+                      metadata.get("FrameDuration", "unknown")), flush=True)
+            self._logged_capture_metadata = True
         timestamp = self._frame_timestamp(metadata, recv_time)
-        return timestamp, self._to_gray(array)
+        return timestamp, gray
 
     def _frame_timestamp(self, metadata, recv_time):
         if config.CAMERA_USE_SENSOR_TIMESTAMP and self._offset is not None:
@@ -283,10 +297,10 @@ class IRCamera:
             # YUV420 arrives as (H*3/2, W); the first H rows are the Y plane.
             if array.shape[0] >= self.height * 3 // 2 and self._format == "YUV420":
                 return np.ascontiguousarray(array[: self.height, : self.width])
-            return array
+            return np.ascontiguousarray(array[: self.height, : self.width])
         if array.ndim == 3:
             # RGB888/BGR888 or XBGR8888 - the mono sensor replicates channels.
-            return np.ascontiguousarray(array[:, :, 0])
+            return np.ascontiguousarray(array[: self.height, : self.width, 0])
         raise CameraError("Unexpected frame shape %s" % (array.shape,))
 
     # ------------------------------------------------------------------

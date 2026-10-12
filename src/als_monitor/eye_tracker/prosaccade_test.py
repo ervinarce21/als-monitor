@@ -40,7 +40,21 @@ class ProsaccadeTest:
         pygame.init()
         pygame.mouse.set_visible(False)
         flags = pygame.FULLSCREEN if config.FULLSCREEN else 0
-        self.screen = pygame.display.set_mode((self.width, self.height), flags)
+        if config.DISPLAY_VSYNC:
+            # pygame only honors vsync requests for SCALED or OPENGL displays.
+            # SCALED preserves the existing software Surface drawing API.
+            try:
+                self.screen = pygame.display.set_mode(
+                    (self.width, self.height), flags | pygame.SCALED, vsync=1)
+                print("[display] Driver %s; vsync requested" %
+                      pygame.display.get_driver(), flush=True)
+            except (TypeError, pygame.error) as exc:
+                print("[display] Vsync unavailable (%s); using standard display" %
+                      exc, flush=True)
+                self.screen = pygame.display.set_mode(
+                    (self.width, self.height), flags)
+        else:
+            self.screen = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption("NEXA - prosaccade latency")
         # Actual surface size wins (fullscreen may be forced to panel size).
         self.width, self.height = self.screen.get_size()

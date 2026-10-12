@@ -100,6 +100,7 @@ RANDOM_SEED = None               # int for reproducible direction order
 SCREEN_WIDTH = 1024              # Waveshare 7in HDMI panel
 SCREEN_HEIGHT = 600
 FULLSCREEN = True
+DISPLAY_VSYNC = True             # request synchronized pygame buffer swaps
 BACKGROUND_COLOR = (0, 0, 0)
 FIXATION_COLOR = (200, 200, 200)
 TARGET_COLOR = (255, 255, 255)

@@ -4,12 +4,15 @@ Setup helper (run before testing, not part of a session).
 
 Shows the live IR image with the detected pupil marked, so you can check
 camera framing, exposure and the DIR_SIGN_X / DIR_SIGN_Y settings in
-config.py. Press Q or ESC to quit, B to toggle the binary mask.
+config.py. Press Q or ESC to quit, B to toggle the binary mask, or S to save
+the unannotated grayscale frame.
 """
 
 import math
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
 import cv2
 
@@ -78,6 +81,16 @@ def main(argv=None):
                 break
             if key == ord("b"):
                 show_mask = not show_mask
+            if key == ord("s"):
+                output_dir = Path("captures")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output = output_dir / ("eye_raw_%s.png" %
+                                       datetime.now().strftime("%Y%m%d_%H%M%S"))
+                if cv2.imwrite(str(output), gray):
+                    print("[preview] Raw frame saved: %s" % output, flush=True)
+                else:
+                    print("[preview] Could not save raw frame: %s" % output,
+                          flush=True)
     finally:
         camera.stop()
         if tracker is not None and hasattr(tracker, "close"):
