@@ -148,5 +148,5 @@ MIN_SAMPLES_IN_WINDOW = 15
 OUTPUT_DIR = "results"
 SAVE_RAW_SAMPLES = True          # also write the per-frame pupil trace
 SAVE_ANNOTATED_VIDEO = True      # save camera frames with pupil markings
-ANNOTATED_VIDEO_FPS = 120        # container playback rate; frames are not duplicated
+ANNOTATED_VIDEO_FPS = 30         # timestamp-resampled playback rate
 PARTICIPANT_ID = "anonymous"

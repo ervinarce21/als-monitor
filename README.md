@@ -28,12 +28,14 @@ relative to image vertical, not a 3D joint angle. Prior contour-based results
 are not comparable with the new pose-based measurements.
 
 Completed NEXA shoulder runs include `shoulder_annotated.avi`, containing the
-mirrored camera view, tracked shoulder/wrist line, measurements, and status
-overlay. Oculomotor runs include `eye_annotated.avi`, containing the grayscale
-eye image with the detected pupil circle, crosshair, confidence, and frame
-timestamp. These MJPEG AVI files are stored beside the run's CSV and JSON files
-under `nexa_data/raw/session_*/`. Video recording uses the same captured frames
-as analysis and does not open the camera a second time.
+mirrored camera view and shoulder/wrist tracking markings without the live
+monitoring panel. Oculomotor runs include `eye_annotated.avi`, containing the
+grayscale eye image with the detected pupil circle, crosshair, confidence, and
+frame timestamp. These MJPEG AVI files are stored beside the run's CSV and JSON
+files under `nexa_data/raw/session_*/`. Video recording uses the same captured
+frames as analysis and does not open the camera a second time. Annotated video is
+timestamp-resampled to 30 FPS so playback retains the assessment's real-world
+duration even when camera processing delivers frames at an uneven rate.
 
 To replay saved media, open **Session history**, select a session, choose
 **View assessments**, select an oculomotor, speech, or motor assessment, and

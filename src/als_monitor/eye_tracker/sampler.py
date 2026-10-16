@@ -38,6 +38,31 @@ class EyeSampler:
         self.video_path = video_path
         self._video_writer = None
         self._video_failed = False
+        self._video_start_timestamp = None
+        self._video_frames_written = 0
+        self._video_last_frame = None
+
+    def _write_timed_frame(self, frame, timestamp):
+        """Resample capture timestamps onto the AVI's constant-FPS timeline."""
+        fps = float(config.ANNOTATED_VIDEO_FPS)
+        if self._video_start_timestamp is None:
+            self._video_start_timestamp = timestamp
+            self._video_writer.write(frame)
+            self._video_frames_written = 1
+            self._video_last_frame = frame
+            return
+
+        target_index = max(0, int(round(
+            (timestamp - self._video_start_timestamp) * fps)))
+        if target_index < self._video_frames_written:
+            return
+
+        while self._video_frames_written < target_index:
+            self._video_writer.write(self._video_last_frame)
+            self._video_frames_written += 1
+        self._video_writer.write(frame)
+        self._video_frames_written += 1
+        self._video_last_frame = frame
 
     def _write_annotated_video(self, gray, sample):
         if not self.video_path or self._video_failed:
@@ -79,7 +104,7 @@ class EyeSampler:
         cv2.putText(view, "t=%.6f" % sample.timestamp, (10, 45),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1,
                     cv2.LINE_AA)
-        self._video_writer.write(np.ascontiguousarray(view))
+        self._write_timed_frame(np.ascontiguousarray(view), sample.timestamp)
 
     # ------------------------------------------------------------------
     def start(self):

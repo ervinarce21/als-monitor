@@ -17,6 +17,7 @@ DISPLAY_WIDTH = 1024
 DISPLAY_HEIGHT = 600
 WINDOW_NAME = "NEXA - Upper Limb Motion Analysis"
 DATABASE_PATH = "nexa_evaluations.db"
+ANNOTATED_VIDEO_FPS = 30.0
 
 
 def save_velocity_analysis(output_dir, times, velocities, peak, arm):
@@ -172,6 +173,9 @@ def main():
     video_writer = None
     video_path = os.path.join(analysis_dir, "shoulder_annotated.avi")
     finish_video_after_frame = False
+    video_start_time = None
+    video_frames_written = 0
+    video_last_frame = None
 
     def on_mouse(event, x, y, flags, param):
         x1, y1, x2, y2 = start_bounds
@@ -216,9 +220,12 @@ def main():
                 os.makedirs(analysis_dir, exist_ok=True)
                 video_writer = cv2.VideoWriter(
                     video_path, cv2.VideoWriter_fourcc(*"MJPG"),
-                    max(1.0, float(cap.get(cv2.CAP_PROP_FPS) or 30.0)),
+                    ANNOTATED_VIDEO_FPS,
                     (DISPLAY_WIDTH, DISPLAY_HEIGHT), True)
                 if video_writer.isOpened():
+                    video_start_time = None
+                    video_frames_written = 0
+                    video_last_frame = None
                     print("[video] Saving annotated shoulder video: %s" %
                           video_path, flush=True)
                 else:
@@ -277,6 +284,8 @@ def main():
             if tracked:
                 cv2.circle(frame, wrist_pt, 10, (0, 255, 0), -1)
                 cv2.line(frame, shoulder_pt, wrist_pt, (255, 255, 0), 3)
+            # Record the tracking marks without the live monitoring controls.
+            recording_frame = frame.copy()
             cv2.putText(frame, "L: left arm   R: right arm   SPACE: start   Q: exit",
                         (20, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             _draw_overlay(frame, participant_id, arm_choice, state, angle,
@@ -297,7 +306,22 @@ def main():
                         (x1 + 10, y1 + 38), cv2.FONT_HERSHEY_SIMPLEX,
                         0.65, (255, 255, 255), 2)
             if video_writer is not None:
-                video_writer.write(frame)
+                if video_start_time is None:
+                    video_start_time = current_time
+                    video_writer.write(recording_frame)
+                    video_frames_written = 1
+                    video_last_frame = recording_frame
+                else:
+                    target_index = max(0, int(round(
+                        (current_time - video_start_time) *
+                        ANNOTATED_VIDEO_FPS)))
+                    if target_index >= video_frames_written:
+                        while video_frames_written < target_index:
+                            video_writer.write(video_last_frame)
+                            video_frames_written += 1
+                        video_writer.write(recording_frame)
+                        video_frames_written += 1
+                        video_last_frame = recording_frame
                 if finish_video_after_frame:
                     video_writer.release()
                     video_writer = None
