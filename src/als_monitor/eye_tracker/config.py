@@ -77,7 +77,13 @@ PUPIL_MIN_AREA = 150             # px^2, in processing-scale pixels
 PUPIL_MAX_AREA = 20000
 PUPIL_MIN_CIRCULARITY = 0.55     # 4*pi*A / P^2
 PUPIL_MIN_FILL = 0.45            # area / minEnclosingCircle area
-PUPIL_MIN_CONFIDENCE = 0.35      # samples below this are treated as "not found"
+PUPIL_MIN_ASPECT_RATIO = 0.50    # minor/major ellipse axis; rejects dark streaks
+PUPIL_MIN_CONTRAST = 8.0         # surrounding-ring mean minus pupil mean (0-255)
+PUPIL_GOOD_CONTRAST = 40.0       # contrast that receives the maximum score
+PUPIL_BORDER_MARGIN_PX = 4       # ignore contours touching the ROI boundary
+PUPIL_MAX_FRAME_JUMP_PX = 90.0   # reject isolated jumps while tracking
+PUPIL_TRACKING_FORGET_FRAMES = 4 # reacquire anywhere after this many misses
+PUPIL_MIN_CONFIDENCE = 0.55      # samples below this are treated as "not found"
 
 # =====================================================================
 # SECTION D - CALIBRATION
