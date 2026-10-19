@@ -5,6 +5,7 @@ import csv
 import math
 import os
 import sqlite3
+import threading
 import time
 
 import cv2
@@ -17,7 +18,63 @@ DISPLAY_WIDTH = 1024
 DISPLAY_HEIGHT = 600
 WINDOW_NAME = "NEXA - Upper Limb Motion Analysis"
 DATABASE_PATH = "nexa_evaluations.db"
-ANNOTATED_VIDEO_FPS = 30.0
+ANNOTATED_VIDEO_FPS = 15.0
+ANNOTATED_VIDEO_SIZE = (640, 376)
+
+
+class RealtimeVideoRecorder:
+    """Encode the latest assessment frame off the pose-processing thread."""
+
+    def __init__(self, path, fps, output_size):
+        self.path = path
+        self.fps = float(fps)
+        self.output_size = output_size
+        self.writer = cv2.VideoWriter(
+            path, cv2.VideoWriter_fourcc(*"MJPG"), self.fps,
+            output_size, True)
+        self._latest_frame = None
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if not self.writer.isOpened():
+            self.writer.release()
+            return False
+        self._thread = threading.Thread(
+            target=self._write_loop, name="shoulder-video-writer", daemon=True)
+        self._thread.start()
+        return True
+
+    def update(self, frame):
+        with self._lock:
+            self._latest_frame = frame
+
+    def _write_loop(self):
+        interval = 1.0 / self.fps
+        next_frame_at = time.monotonic()
+        while not self._stop.is_set():
+            wait = next_frame_at - time.monotonic()
+            if wait > 0 and self._stop.wait(wait):
+                break
+            with self._lock:
+                frame = self._latest_frame
+            if frame is not None:
+                if (frame.shape[1], frame.shape[0]) != self.output_size:
+                    frame = cv2.resize(
+                        frame, self.output_size, interpolation=cv2.INTER_AREA)
+                self.writer.write(frame)
+            next_frame_at += interval
+            if next_frame_at < time.monotonic() - interval:
+                next_frame_at = time.monotonic()
+        self.writer.release()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+        elif self.writer is not None:
+            self.writer.release()
 
 
 def save_velocity_analysis(output_dir, times, velocities, peak, arm):
@@ -170,12 +227,9 @@ def main():
     finished_at = None
     start_clicked = [False]
     start_bounds = (DISPLAY_WIDTH - 200, 25, DISPLAY_WIDTH - 20, 85)
-    video_writer = None
+    video_recorder = None
     video_path = os.path.join(analysis_dir, "shoulder_annotated.avi")
     finish_video_after_frame = False
-    video_start_time = None
-    video_frames_written = 0
-    video_last_frame = None
 
     def on_mouse(event, x, y, flags, param):
         x1, y1, x2, y2 = start_bounds
@@ -218,21 +272,15 @@ def main():
                 finished_at = None
                 state = "RECORDING"
                 os.makedirs(analysis_dir, exist_ok=True)
-                video_writer = cv2.VideoWriter(
-                    video_path, cv2.VideoWriter_fourcc(*"MJPG"),
-                    ANNOTATED_VIDEO_FPS,
-                    (DISPLAY_WIDTH, DISPLAY_HEIGHT), True)
-                if video_writer.isOpened():
-                    video_start_time = None
-                    video_frames_written = 0
-                    video_last_frame = None
+                video_recorder = RealtimeVideoRecorder(
+                    video_path, ANNOTATED_VIDEO_FPS, ANNOTATED_VIDEO_SIZE)
+                if video_recorder.start():
                     print("[video] Saving annotated shoulder video: %s" %
                           video_path, flush=True)
                 else:
                     print("[video] Could not create annotated shoulder video: %s" %
                           video_path, flush=True)
-                    video_writer.release()
-                    video_writer = None
+                    video_recorder = None
                 print("[START] Recording %s arm for %.1f seconds." %
                       (arm_choice, trial_duration), flush=True)
             angle = (calculate_shoulder_elevation_angle(shoulder_pt, wrist_pt)
@@ -305,26 +353,11 @@ def main():
                         "Cancel start" if state == "WAITING" else "Start",
                         (x1 + 10, y1 + 38), cv2.FONT_HERSHEY_SIMPLEX,
                         0.65, (255, 255, 255), 2)
-            if video_writer is not None:
-                if video_start_time is None:
-                    video_start_time = current_time
-                    video_writer.write(recording_frame)
-                    video_frames_written = 1
-                    video_last_frame = recording_frame
-                else:
-                    target_index = max(0, int(round(
-                        (current_time - video_start_time) *
-                        ANNOTATED_VIDEO_FPS)))
-                    if target_index >= video_frames_written:
-                        while video_frames_written < target_index:
-                            video_writer.write(video_last_frame)
-                            video_frames_written += 1
-                        video_writer.write(recording_frame)
-                        video_frames_written += 1
-                        video_last_frame = recording_frame
+            if video_recorder is not None:
+                video_recorder.update(recording_frame)
                 if finish_video_after_frame:
-                    video_writer.release()
-                    video_writer = None
+                    video_recorder.stop()
+                    video_recorder = None
                     finish_video_after_frame = False
                     print("[video] Annotated shoulder video saved: %s" %
                           video_path, flush=True)
@@ -353,8 +386,8 @@ def main():
                 break
     finally:
         pose.close()
-        if video_writer is not None:
-            video_writer.release()
+        if video_recorder is not None:
+            video_recorder.stop()
         cap.release()
         cv2.destroyAllWindows()
     return 0

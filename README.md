@@ -34,8 +34,9 @@ grayscale eye image with the detected pupil circle, crosshair, confidence, and
 frame timestamp. These MJPEG AVI files are stored beside the run's CSV and JSON
 files under `nexa_data/raw/session_*/`. Video recording uses the same captured
 frames as analysis and does not open the camera a second time. Annotated video is
-timestamp-resampled to 30 FPS so playback retains the assessment's real-world
-duration even when camera processing delivers frames at an uneven rate.
+encoded on a background thread at 15 FPS and `640x376`. The writer reuses the
+latest analyzed frame when pose processing is slower, preserving real-world
+playback duration without blocking the movement-analysis loop.
 
 To replay saved media, open **Session history**, select a session, choose
 **View assessments**, select an oculomotor, speech, or motor assessment, and
