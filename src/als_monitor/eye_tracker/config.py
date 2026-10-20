@@ -54,6 +54,9 @@ EYE_ROI_MODE = "full"
 # set DIR_SIGN_X = -1. Verify once with the debug preview, then leave alone.
 DIR_SIGN_X = 1
 DIR_SIGN_Y = 1
+# A front-facing webcam observes participant-right as decreasing image x.
+WEBCAM_DIR_SIGN_X = -1
+WEBCAM_DIR_SIGN_Y = 1
 
 # =====================================================================
 # SECTION C - PUPIL DETECTION
@@ -124,6 +127,16 @@ VIDEO_FEEDBACK = True            # live camera check before calibration
 VIDEO_FEEDBACK_FPS = 30          # display refresh rate; capture still runs at CAMERA_FPS
 VIDEO_FEEDBACK_MAX_WIDTH = 720
 VIDEO_FEEDBACK_MAX_HEIGHT = 450
+# Full-face webcam positioning targets, expressed as fractions of the frame.
+WEBCAM_FACE_WIDTH_MIN = 0.30
+WEBCAM_FACE_WIDTH_MAX = 0.55
+WEBCAM_FACE_CENTER_X_TOLERANCE = 0.10
+WEBCAM_FACE_CENTER_Y_TOLERANCE = 0.12
+ASSESSMENT_PREVIEW = True         # compact live eye view during calibration/trials
+ASSESSMENT_PREVIEW_WIDTH = 180
+ASSESSMENT_PREVIEW_HEIGHT = 135
+ASSESSMENT_PREVIEW_FPS = 10       # keep display work below camera sampling rate
+ASSESSMENT_PREVIEW_MARGIN = 12
 
 # =====================================================================
 # SECTION G - SIGNAL PROCESSING / SACCADE DETECTION
@@ -138,6 +151,13 @@ MIN_SACCADE_DURATION = 0.020     # s, condition must hold this long
 MIN_CONSECUTIVE_SAMPLES = 3      # ...and for at least this many samples
 MIN_DISPLACEMENT = 6.0           # px, signed displacement along the target axis
 MAX_OFF_AXIS_RATIO = 1.5         # reject if off-axis motion dominates this much
+
+# MediaPipe tracks the iris in a full-face image, where genuine gaze changes
+# span fewer pixels and processing normally runs at webcam rather than IR FPS.
+WEBCAM_VELOCITY_THRESHOLD = 15.0
+WEBCAM_BASELINE_SD_MULTIPLIER = 3.0
+WEBCAM_MIN_DISPLACEMENT = 2.0
+WEBCAM_MAX_MEDIAN_SAMPLE_INTERVAL_S = 0.045  # accepts a stable 30 FPS stream
 
 MIN_LATENCY_S = 0.070            # below this = anticipatory, rejected
 MAX_LATENCY_S = 0.800            # above this = no valid saccade

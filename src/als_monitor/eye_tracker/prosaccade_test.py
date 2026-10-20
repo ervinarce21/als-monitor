@@ -13,6 +13,7 @@ import numpy as np
 import pygame
 
 from . import config
+from .face_tracker import webcam_position_guidance
 from .results import TrialResult
 from .saccade_detector import detect_saccade
 
@@ -32,6 +33,7 @@ class ProsaccadeTest:
         self.centre = (self.width // 2, self.height // 2)
         self.baseline = None          # (x, y, noise_px) from calibration
         self.rng = random.Random(config.RANDOM_SEED)
+        self._preview_last_update = 0.0
 
     # ------------------------------------------------------------------
     # Display
@@ -89,11 +91,67 @@ class ProsaccadeTest:
         surface = self.small_font.render(text, True, (60, 60, 60))
         self.screen.blit(surface, (10, 10))
 
+    def _assessment_preview_rect(self):
+        margin = max(0, int(config.ASSESSMENT_PREVIEW_MARGIN))
+        width = min(int(config.ASSESSMENT_PREVIEW_WIDTH),
+                    max(1, self.width - 2 * margin))
+        height = min(int(config.ASSESSMENT_PREVIEW_HEIGHT),
+                     max(1, self.height - 2 * margin))
+        return pygame.Rect(self.width - width - margin, margin, width, height)
+
+    def _draw_assessment_preview(self, force=False):
+        """Draw the latest eye frame without touching the capture thread."""
+        if not config.ASSESSMENT_PREVIEW:
+            return None
+
+        now = time.perf_counter()
+        interval = 1.0 / max(1.0, float(config.ASSESSMENT_PREVIEW_FPS))
+        if not force and now - self._preview_last_update < interval:
+            return None
+        self._preview_last_update = now
+
+        panel = self._assessment_preview_rect()
+        frame, sample = self.sampler.get_latest_preview()
+        self.screen.fill((10, 10, 10), panel)
+        if frame is None:
+            waiting = self.small_font.render("Waiting for eye camera", True,
+                                             (170, 170, 170))
+            self.screen.blit(waiting, waiting.get_rect(center=panel.center))
+        else:
+            frame_h, frame_w = frame.shape[:2]
+            scale = min(panel.width / frame_w, panel.height / frame_h)
+            view_size = (max(1, int(frame_w * scale)),
+                         max(1, int(frame_h * scale)))
+            rgb = np.repeat(frame[:, :, np.newaxis], 3, axis=2)
+            surface = pygame.surfarray.make_surface(np.swapaxes(rgb, 0, 1))
+            if surface.get_size() != view_size:
+                surface = pygame.transform.smoothscale(surface, view_size)
+            view_rect = surface.get_rect(center=panel.center)
+            self.screen.blit(surface, view_rect)
+
+            found = (sample is not None and sample.found and
+                     not math.isnan(sample.x) and not math.isnan(sample.y))
+            if found:
+                marker = (view_rect.left + int(sample.x * scale),
+                          view_rect.top + int(sample.y * scale))
+                radius = max(3, int(sample.radius * scale))
+                pygame.draw.circle(self.screen, (40, 220, 80), marker,
+                                   radius, 2)
+                indicator = (40, 220, 80)
+            else:
+                indicator = (240, 130, 100)
+            pygame.draw.circle(self.screen, indicator,
+                               (panel.left + 8, panel.bottom - 8), 4)
+
+        pygame.draw.rect(self.screen, (100, 100, 100), panel, 1)
+        return panel
+
     def _draw_fixation(self, status=""):
         self.screen.fill(config.BACKGROUND_COLOR)
         pygame.draw.circle(self.screen, config.FIXATION_COLOR, self.centre,
                            config.FIXATION_RADIUS_PX)
         self._blit_status(status)
+        self._draw_assessment_preview(force=True)
         pygame.display.flip()
 
     def _draw_target(self, direction, status=""):
@@ -108,6 +166,7 @@ class ProsaccadeTest:
                            self._target_position(direction),
                            config.TARGET_RADIUS_PX)
         self._blit_status(status)
+        self._draw_assessment_preview(force=True)
         pygame.display.flip()
         onset = time.perf_counter()
         return onset + config.DISPLAY_LATENCY_COMPENSATION_MS / 1000.0
@@ -136,12 +195,16 @@ class ProsaccadeTest:
                 return event.key
         return None
 
-    def _wait(self, duration, poll_interval=0.002):
+    def _wait(self, duration, poll_interval=0.002, show_preview=False):
         """Sleep while staying responsive to the abort keys."""
         end = time.perf_counter() + duration
         while time.perf_counter() < end:
             self._poll_events()
             self._check_sampler()
+            if show_preview:
+                preview_rect = self._draw_assessment_preview()
+                if preview_rect is not None:
+                    pygame.display.update(preview_rect)
             time.sleep(poll_interval)
 
     def _wait_for_key(self, keys=(pygame.K_SPACE,)):
@@ -194,6 +257,17 @@ class ProsaccadeTest:
                 self.screen.blit(surface, view_rect)
                 pygame.draw.rect(self.screen, (100, 100, 100), view_rect, 1)
 
+                position = (self.sampler.get_position_status()
+                            if config.CAMERA_BACKEND == "webcam" else None)
+                if position and position.get("face_found"):
+                    face_rect = pygame.Rect(
+                        view_rect.left + int(position["left"] * view_w),
+                        view_rect.top + int(position["top"] * view_h),
+                        max(1, int((position["right"] - position["left"]) * view_w)),
+                        max(1, int((position["bottom"] - position["top"]) * view_h)),
+                    )
+                    pygame.draw.rect(self.screen, (80, 220, 120), face_rect, 2)
+
                 found = sample is not None and sample.found and \
                     not math.isnan(sample.x) and not math.isnan(sample.y)
                 if found:
@@ -214,6 +288,11 @@ class ProsaccadeTest:
                     status = "Pupil not detected"
                     status_colour = (240, 130, 100)
 
+                if config.CAMERA_BACKEND == "webcam":
+                    guidance, positioned = webcam_position_guidance(position)
+                    status = guidance
+                    status_colour = ((80, 230, 120) if positioned
+                                     else (240, 190, 80))
                 status_surface = self.small_font.render(status, True, status_colour)
                 self.screen.blit(status_surface,
                                  status_surface.get_rect(center=(self.centre[0],
@@ -242,7 +321,7 @@ class ProsaccadeTest:
 
         self._draw_fixation("calibrating")
         start = time.perf_counter()
-        self._wait(config.CALIBRATION_DURATION_S)
+        self._wait(config.CALIBRATION_DURATION_S, show_preview=True)
         end = time.perf_counter()
 
         samples = self.sampler.get_samples(start, end)
@@ -273,7 +352,10 @@ class ProsaccadeTest:
             problems.append("Low detection rate: %.0f%%" % (rate * 100))
         if noise > config.CALIBRATION_MAX_NOISE_PX:
             problems.append("High position noise: %.1f px" % noise)
-        if not math.isnan(dt) and dt > config.MAX_MEDIAN_SAMPLE_INTERVAL_S:
+        max_interval = (config.WEBCAM_MAX_MEDIAN_SAMPLE_INTERVAL_S
+                        if config.CAMERA_BACKEND == "webcam"
+                        else config.MAX_MEDIAN_SAMPLE_INTERVAL_S)
+        if not math.isnan(dt) and dt > max_interval:
             problems.append("Slow sampling: %.1f fps" % fps)
 
         if problems:
@@ -327,7 +409,7 @@ class ProsaccadeTest:
                     confidence=0.0, valid=False, reason="trial_error:%s" % exc))
 
             self._draw_fixation(status)
-            self._wait(config.INTER_TRIAL_INTERVAL_S)
+            self._wait(config.INTER_TRIAL_INTERVAL_S, show_preview=True)
 
         return trials
 
@@ -337,13 +419,13 @@ class ProsaccadeTest:
         fixation = config.FIXATION_DURATION_S
         if config.FIXATION_JITTER_S > 0:
             fixation += self.rng.uniform(0.0, config.FIXATION_JITTER_S)
-        self._wait(fixation)
+        self._wait(fixation, show_preview=True)
 
         # 3-4. Target onset, timestamped at the flip.
         target_onset = self._draw_target(direction, status)
 
         # 5. Watch the eye.
-        self._wait(config.POST_TARGET_WINDOW_S)
+        self._wait(config.POST_TARGET_WINDOW_S, show_preview=True)
 
         samples = self.sampler.get_samples(
             target_onset - config.BASELINE_DURATION_S - 0.05,

@@ -38,7 +38,11 @@ def direction_axis(direction):
     Unit vector, in IMAGE coordinates, that the pupil should move along for
     the given SCREEN direction. Image y grows downward.
     """
-    sx, sy = config.DIR_SIGN_X, config.DIR_SIGN_Y
+    if config.CAMERA_BACKEND == "webcam":
+        sx = config.WEBCAM_DIR_SIGN_X
+        sy = config.WEBCAM_DIR_SIGN_Y
+    else:
+        sx, sy = config.DIR_SIGN_X, config.DIR_SIGN_Y
     return {
         "left":  (-sx, 0.0),
         "right": (sx, 0.0),
@@ -100,7 +104,10 @@ def detect_saccade(samples, target_onset_time, direction):
 
     intervals = np.diff(t)
     median_dt = float(np.median(intervals)) if intervals.size else float("nan")
-    if not np.isfinite(median_dt) or median_dt > config.MAX_MEDIAN_SAMPLE_INTERVAL_S:
+    max_interval = (config.WEBCAM_MAX_MEDIAN_SAMPLE_INTERVAL_S
+                    if config.CAMERA_BACKEND == "webcam"
+                    else config.MAX_MEDIAN_SAMPLE_INTERVAL_S)
+    if not np.isfinite(median_dt) or median_dt > max_interval:
         return SaccadeResult(False, n_samples=t.size,
                              median_interval_ms=median_dt * 1000.0,
                              reason="sampling_too_slow")
@@ -120,9 +127,15 @@ def detect_saccade(samples, target_onset_time, direction):
     base_x = float(np.median(x[base_mask]))
     base_y = float(np.median(y[base_mask]))
     base_v = v[base_mask]
-    threshold = max(config.VELOCITY_THRESHOLD,
+    if config.CAMERA_BACKEND == "webcam":
+        velocity_floor = config.WEBCAM_VELOCITY_THRESHOLD
+        baseline_multiplier = config.WEBCAM_BASELINE_SD_MULTIPLIER
+    else:
+        velocity_floor = config.VELOCITY_THRESHOLD
+        baseline_multiplier = config.BASELINE_SD_MULTIPLIER
+    threshold = max(velocity_floor,
                     float(np.mean(base_v) +
-                          config.BASELINE_SD_MULTIPLIER * np.std(base_v)))
+                          baseline_multiplier * np.std(base_v)))
 
     axis_x, axis_y = direction_axis(direction)
 
@@ -195,7 +208,10 @@ def _direction_ok(t, x, y, onset_index, base_x, base_y, axis_x, axis_y):
     across = np.abs(dx * -axis_y + dy * axis_x)       # perpendicular magnitude
 
     k = int(np.argmax(along))
-    if along[k] < config.MIN_DISPLACEMENT:
+    min_displacement = (config.WEBCAM_MIN_DISPLACEMENT
+                        if config.CAMERA_BACKEND == "webcam"
+                        else config.MIN_DISPLACEMENT)
+    if along[k] < min_displacement:
         return False                                   # too small or wrong way
     if across[k] > config.MAX_OFF_AXIS_RATIO * along[k]:
         return False                                   # mostly off-axis motion

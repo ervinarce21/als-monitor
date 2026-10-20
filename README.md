@@ -305,6 +305,9 @@ nexa eye --camera webcam
 ```
 
 In NEXA UI, select Oculomotor, then Full-face webcam. Keep the full face visible
+The camera-check preview outlines the detected face and gives live framing
+guidance: move closer/farther or move left/right/up/down in the visible frame.
+`Position OK` means the face occupies the configured size and central region.
 and the head still. USB eye and CSI modes use the dark-pupil tracker; full-face
 webcam mode uses the iris model.
 Webcam coordinates are image pixels, not calibrated screen gaze. Receive-time
@@ -346,6 +349,10 @@ PYTHONPATH=src python3 -m als_monitor.eye_tracker
 - Results are saved in `results/`.
 
 ## Grip monitor
+
+For a systematic guide to locating, inspecting, backing up, testing, and
+bringing the ESP32 source into this repository, see
+[`ESP32-Firmware-Guide.md`](ESP32-Firmware-Guide.md).
 
 Connect the ESP32 and verify its serial port:
 
