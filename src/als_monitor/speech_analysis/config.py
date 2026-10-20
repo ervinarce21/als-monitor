@@ -40,6 +40,7 @@ CHANNELS = 1                 # mono
 SAMPLE_WIDTH_BITS = 16       # PCM16
 SUBTYPE = "PCM_16"           # soundfile subtype string
 RECORDING_FORMAT = "WAV"
+LIVE_LEVEL_REPORT_SECONDS = 0.5
 
 # None = use the system default input device. Set to an integer device
 # index (from --list-microphones) if the wrong device gets selected.
@@ -66,19 +67,26 @@ DEFAULT_PASSAGE_METADATA_PATH = PASSAGES_DIR / "rainbow_passage_metadata.json"
 # =====================================================================
 # Praat Sound: To TextGrid (silences) parameters. These are explicit research
 # settings, not universal clinical cutoffs; validate them for the protocol.
+PRAAT_INTENSITY_MIN_PITCH_HZ = 100.0
+PRAAT_INTENSITY_TIME_STEP = 0.0       # automatic: 0.8 / minimum pitch
 PRAAT_SILENCE_THRESHOLD_DB = -25.0
 PAUSE_THRESHOLD_SECONDS = 0.300       # minimum silent interval counted as pause
 MIN_SPEECH_SEGMENT_SECONDS = 0.100    # minimum sounding interval retained
-VAD_FRAME_DURATION_MS = 30           # 10/20/30 ms required by WebRTC VAD
-VAD_AGGRESSIVENESS = 2               # WebRTC VAD: 0 (least) - 3 (most aggressive)
 
 # =====================================================================
 # F0 ANALYSIS (Praat raw autocorrelation via Parselmouth)
 # =====================================================================
 F0_PITCH_FLOOR_HZ = 75.0
 F0_PITCH_CEILING_HZ = 500.0
-F0_TIME_STEP = 0.0            # 0.0 = Praat default (= 0.75 / floor)
-F0_MIN_VALID_FRAME_PERCENT = 30.0   # below this, flag INVALID_F0
+F0_TIME_STEP = 0.0            # Praat automatic: 0.75 / pitch floor
+F0_MAX_NUMBER_OF_CANDIDATES = 15
+F0_VERY_ACCURATE = False
+F0_SILENCE_THRESHOLD = 0.03
+F0_VOICING_THRESHOLD = 0.45
+F0_OCTAVE_COST = 0.01
+F0_OCTAVE_JUMP_COST = 0.35
+F0_VOICED_UNVOICED_COST = 0.14
+F0_MIN_VALID_FRAME_PERCENT = 30.0   # below this, quality warning
 
 # =====================================================================
 # HNR ANALYSIS (Praat cross-correlation via Parselmouth)
@@ -87,7 +95,7 @@ HNR_TIME_STEP = 0.01
 HNR_MIN_PITCH_HZ = 75.0
 HNR_SILENCE_THRESHOLD = 0.1
 HNR_PERIODS_PER_WINDOW = 1.0
-HNR_MIN_VALID_FRAME_PERCENT = 30.0  # below this, flag INVALID_HNR
+HNR_MIN_VALID_FRAME_PERCENT = 30.0  # below this, quality warning
 
 # =====================================================================
 # AUDIO QUALITY CONTROL
@@ -110,6 +118,7 @@ QF_EXCESSIVE_NOISE = "EXCESSIVE_NOISE"
 QF_CLIPPING_DETECTED = "CLIPPING_DETECTED"
 QF_INSUFFICIENT_SPEECH = "INSUFFICIENT_SPEECH"
 QF_INSUFFICIENT_VOICED_FRAMES = "INSUFFICIENT_VOICED_FRAMES"
+QF_INSUFFICIENT_HNR_FRAMES = "INSUFFICIENT_HNR_FRAMES"
 QF_INVALID_F0 = "INVALID_F0"
 QF_INVALID_HNR = "INVALID_HNR"
 QF_VAD_FAILURE = "VAD_FAILURE"
@@ -118,5 +127,5 @@ QF_WAV_FORMAT_ERROR = "WAV_FORMAT_ERROR"
 # =====================================================================
 # APPLICATION / VERSIONING
 # =====================================================================
-NEXA_SPEECH_MODULE_VERSION = "0.3.0-praat-pauses"
+NEXA_SPEECH_MODULE_VERSION = "0.3.3-praat-silence-fix"
 PARTICIPANT_ID_DEFAULT = "P000"

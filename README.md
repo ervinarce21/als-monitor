@@ -405,14 +405,37 @@ screen. The separate **Abort assessment** action still terminates the run
 without requesting analysis. Very short early recordings may be saved with
 quality warnings from the existing speech quality checks.
 
+While recording, NEXA monitors the live RMS input level every 0.5 seconds. If
+the level remains below -45 dBFS for about 1.5 seconds, the assessment screen
+prompts the operator to move the microphone closer, ask the participant to
+speak louder, or verify the selected input. The prompt clears automatically
+when the level recovers. It indicates low input only; it cannot distinguish
+microphone distance from low gain, quiet speech, or an incorrect device.
+The running screen also shows a volume meter and provisional pause feedback.
+This live pause indicator uses the current input level and is only positioning
+feedback; final pause measurements are calculated after recording by Praat.
+Select **Show analysis** on the review screen to view volume across the entire
+recording with confirmed Praat pause intervals shaded on the chart.
+
+The UI launches speech with `.venv/bin/python` on Raspberry Pi (or
+`.venv\Scripts\python.exe` on Windows) when that environment exists. If a result
+shows `VAD_FAILURE` and `ModuleNotFoundError: No module named 'parselmouth'`,
+install `praat-parselmouth` into that project environment:
+
+```bash
+.venv/bin/python -m pip install praat-parselmouth
+.venv/bin/python -c "import parselmouth; print(parselmouth.VERSION, parselmouth.PRAAT_VERSION)"
+```
+
 F0 and HNR now use Praat via `praat-parselmouth` (not the unrelated
 `parselmouth` package). The Raspberry Pi setup above installs it in `.venv`.
 If Praat cannot be loaded, NEXA now preserves the WAV and timing analysis,
 marks F0 and HNR unavailable, and records quality warnings instead of failing
 the entire assessment. Install Praat-Parselmouth to restore those metrics.
 Pause measurements use Praat's intensity-based silence segmentation with a
-`-25 dB` relative threshold, `0.300 s` minimum silent interval, and `0.100 s`
-minimum sounding interval. Leading/trailing silence is excluded from the pause
+`100 Hz` intensity minimum pitch, automatic intensity time step, `-25 dB`
+relative threshold, `0.300 s` minimum silent interval, and `0.100 s` minimum
+sounding interval. Leading/trailing silence is excluded from the pause
 percentage. The summary records the method and parameters used.
 Do not compare pause measurements from version `0.3.0-praat-pauses` directly
 with older RMS-segmented results without reanalyzing the original WAV files.

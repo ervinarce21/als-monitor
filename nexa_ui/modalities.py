@@ -264,7 +264,8 @@ SPEECH = Modality(
     key="speech",
     name="Speech",
     subtitle="Microphone-based speech analysis (USB conference mic)",
-    output_files=["speech_recording.wav", "speech_summary.json"],
+    output_files=["speech_recording.wav", "speech_summary.json",
+                  "speech_analysis.png"],
     metrics=[
         Metric("recording_duration_sec", "Recording length", "recording_duration_sec", "last", "s", 1),
         Metric("speech_duration_sec", "Speech duration", "speech_duration_sec", "last", "s", 1),

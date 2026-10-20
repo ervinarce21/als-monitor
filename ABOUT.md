@@ -537,15 +537,16 @@ speech duration, internal pause duration/count/percentage, mean fundamental
 frequency (F0), Praat HNR, voiced pitch-frame count, and valid HNR-frame count.
 
 Speech timing uses Praat's `Sound: To TextGrid (silences)` intensity-based
-segmentation. The configured silence threshold is -25 dB relative to the
-recording's maximum intensity, the minimum silent interval is 0.300 seconds,
-and the minimum sounding interval is 0.100 seconds. Praat bandpass-filters the
-sound from 80 to 8000 Hz before calculating its intensity contour. Leading and
-trailing silence are excluded. Pause percentage is internal pause time divided
-by the span from first detected sounding onset through last sounding offset.
-If Praat is unavailable, the summary explicitly reports the legacy RMS-energy
-fallback in `analysis_parameters.speech_timing`; fallback results should not be
-compared directly with Praat-segmented results.
+segmentation. The intensity minimum pitch is 100 Hz and its time step is
+automatic (effectively 0.008 seconds). The configured silence threshold is
+-25 dB relative to the recording's maximum intensity, the minimum silent
+interval is 0.300 seconds, and the minimum sounding interval is 0.100 seconds.
+Praat bandpass-filters the sound from 80 to 8000 Hz before calculating its
+intensity contour. Leading and trailing silence are excluded. Pause percentage
+is internal pause time divided by the span from first detected sounding onset
+through last sounding offset. If Praat is unavailable, the summary explicitly
+reports the Praat-like RMS fallback in `analysis_parameters.speech_timing`;
+fallback results should not be compared directly with Praat-segmented results.
 
 Warnings cover short/quiet recordings, clipping, insufficient speech, and missing
 F0/HNR, even on successful runs. F0/HNR now use Praat through the
@@ -567,7 +568,10 @@ speech models. [Parselmouth API](https://parselmouth.readthedocs.io/en/stable/ap
 |---|---|
 | Pitch method | Praat raw autocorrelation |
 | Pitch floor / ceiling | 75 / 500 Hz |
-| Pitch time step | Automatic (`None`, configured as 0.0) |
+| Pitch time step | Automatic (`0.75 / pitch floor`, effectively 0.01 s) |
+| Pitch candidates / very accurate | 15 / off |
+| Pitch silence / voicing threshold | 0.03 / 0.45 |
+| Pitch octave / jump / voiced-unvoiced cost | 0.01 / 0.35 / 0.14 |
 | HNR method | Praat cross-correlation |
 | HNR time step | 0.01 s |
 | HNR minimum pitch | 75 Hz |
@@ -575,12 +579,12 @@ speech models. [Parselmouth API](https://parselmouth.readthedocs.io/en/stable/ap
 | HNR periods per window | 1.0 |
 | Aggregation | Arithmetic mean of valid frames, separately for each measure |
 
-Unspecified pitch options retain the installed Parselmouth defaults; archive
-that version alongside the explicit settings. F0 excludes zero/unvoiced and
-nonfinite values. HNR excludes nonfinite values and Praat's -200 undefined
-sentinel; genuine negative HNR remains valid data and is not absolute-valued.
-Unlike grip force, HNR is a logarithmic ratio and must retain its sign.
-F0 and HNR can have different valid-frame sets and counts.
+The pitch settings are passed explicitly and recorded with the installed
+Parselmouth and embedded Praat versions. F0 excludes zero/unvoiced and nonfinite
+values. HNR excludes nonfinite values and Praat's -200 undefined sentinel;
+genuine negative HNR remains valid data and is not absolute-valued. Unlike grip
+force, HNR is a logarithmic ratio and must retain its sign. F0 and HNR can have
+different valid-frame sets and counts.
 
 F0 is measured in Hz; HNR in dB, conceptually
 `10 * log10(periodic_power / noise_power)`. Higher pitch does not imply higher
@@ -598,13 +602,13 @@ Very short recordings are not padded to fabricate frames: pitch is skipped below
 `3 / pitch_floor` seconds, and HNR below `(1 + periods_per_window) / minimum_pitch`.
 No valid estimate becomes JSON null and triggers the corresponding quality flag.
 Current checks flag duration below 1 s, RMS below -45 dBFS, clipping fraction
-above 0.001, estimated speech below 1 s, and missing F0/HNR. The configured
-minimum-valid-frame-percentage constants are not currently enforced; `VALID`
-means no implemented warning fired, not that research validity is established.
+above 0.001, estimated speech below 1 s, missing F0/HNR, and fewer than 30%
+valid frames for either F0 or HNR. `VALID` means no implemented warning fired,
+not that research or clinical validity is established.
 
 ### Versioning and Reference Check
 
-Speech module version `0.3.0-praat-pauses` records `analysis_parameters`, Parselmouth
+Speech module version `0.3.3-praat-silence-fix` records `analysis_parameters`, Parselmouth
 and embedded Praat versions, method names, explicit settings, aggregation, and
 channel/segment policy. Metadata is retained in the speech database and summary
 JSON and exposed through UI metric details. The verified Windows environment

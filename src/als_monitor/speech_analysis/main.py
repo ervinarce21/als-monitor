@@ -7,7 +7,9 @@ acoustic analysis, result storage, and longitudinal baseline comparison.
 """
 
 import argparse
+from array import array
 import json
+import math
 import os
 import shutil
 import sqlite3
@@ -159,6 +161,9 @@ def cmd_record(args):
         paused = False
         pause_started = None
         paused_duration = 0.0
+        level_square_sum = 0.0
+        level_sample_count = 0
+        level_report_started = time.monotonic()
         try:
             with sd.RawInputStream(
                     samplerate=sample_rate, channels=config.CHANNELS,
@@ -175,6 +180,9 @@ def cmd_record(args):
                     if pause_now and not paused:
                         paused = True
                         pause_started = time.monotonic()
+                        level_square_sum = 0.0
+                        level_sample_count = 0
+                        level_report_started = time.monotonic()
                         print("Recording paused.", flush=True)
                     elif not pause_now and paused:
                         paused = False
@@ -187,8 +195,31 @@ def cmd_record(args):
                         keep_frames = min(block_frames, remaining_frames)
                         keep_bytes = (keep_frames * config.CHANNELS *
                                       (config.SAMPLE_WIDTH_BITS // 8))
-                        chunks.append(bytes(audio)[:keep_bytes])
+                        kept_audio = bytes(audio)[:keep_bytes]
+                        chunks.append(kept_audio)
                         captured_frames += keep_frames
+                        pcm = array("h")
+                        pcm.frombytes(kept_audio)
+                        if sys.byteorder == "big":
+                            pcm.byteswap()
+                        level_square_sum += sum(sample * sample for sample in pcm)
+                        level_sample_count += len(pcm)
+                        now = time.monotonic()
+                        if (now - level_report_started >=
+                                config.LIVE_LEVEL_REPORT_SECONDS):
+                            rms = (math.sqrt(level_square_sum /
+                                             level_sample_count)
+                                   if level_sample_count else 0.0)
+                            dbfs = 20.0 * math.log10(
+                                max(rms / 32768.0, 1e-12))
+                            level_status = (
+                                "quiet" if dbfs < config.QC_MIN_RMS_DBFS
+                                else "ok")
+                            print("[audio-level] %.1f %s" %
+                                  (dbfs, level_status), flush=True)
+                            level_square_sum = 0.0
+                            level_sample_count = 0
+                            level_report_started = now
                     if overflowed and "input overflow" not in stream_warnings:
                         stream_warnings.append("input overflow")
         except KeyboardInterrupt:
@@ -279,9 +310,59 @@ def cmd_assess(args):
     summary_path = output_dir / "speech_summary.json"
     with open(summary_path, "w") as handle:
         json.dump(metrics, handle, indent=2)
+    _write_speech_analysis_plot(output_dir, metrics)
     print("Analysis stored as session: %s" % session_id)
     print("Summary written to: %s" % summary_path)
     return 0
+
+
+def _write_speech_analysis_plot(output_dir, metrics):
+    """Write volume history with confirmed Praat pause intervals overlaid."""
+    timeline = metrics.get("volume_timeline") or []
+    if not timeline:
+        return None
+    try:
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(9.0, 3.8), dpi=120, constrained_layout=True)
+        FigureCanvasAgg(figure)
+        axis = figure.add_subplot(111)
+        times = [point["time_sec"] for point in timeline]
+        levels = [point["rms_dbfs"] for point in timeline]
+        axis.plot(times, levels, color="#2A7FBF", linewidth=1.5,
+                  label="RMS volume")
+        axis.axhline(config.QC_MIN_RMS_DBFS, color="#C47D00",
+                     linestyle="--", linewidth=1.0,
+                     label="Quiet-input warning")
+        timing = metrics.get("analysis_parameters", {}).get(
+            "speech_timing", {})
+        pauses = timing.get("pause_intervals_sec", [])
+        for index, interval in enumerate(pauses):
+            if len(interval) == 2:
+                axis.axvspan(interval[0], interval[1], color="#D1495B",
+                             alpha=0.22,
+                             label="Praat pause" if index == 0 else None)
+        axis.set_xlabel("Time (seconds)")
+        axis.set_ylabel("RMS level (dBFS)")
+        axis.set_title("Speech volume and detected pauses")
+        axis.grid(True, alpha=0.2)
+        axis.legend(loc="lower right")
+        if timing.get("method") != "praat_sound_to_textgrid_silences":
+            axis.text(
+                0.01, 0.98,
+                "Praat pause overlay unavailable: %s" %
+                timing.get("error", timing.get("status", "unknown error")),
+                transform=axis.transAxes, va="top", fontsize=8,
+                color="#A61B1B", wrap=True)
+        path = Path(output_dir) / "speech_analysis.png"
+        figure.savefig(str(path))
+        print("Speech analysis plot written to: %s" % path, flush=True)
+        return path
+    except Exception as exc:
+        print("WARNING: speech analysis plot unavailable: %s" % exc,
+              flush=True)
+        return None
 
 
 def _stage_existing_analysis(wav_path, metrics):
@@ -300,6 +381,7 @@ def _stage_existing_analysis(wav_path, metrics):
             shutil.copy2(str(source), str(staged_wav))
         with open(summary_path, "w") as handle:
             json.dump(metrics, handle, indent=2)
+        _write_speech_analysis_plot(output_dir, metrics)
     except OSError as exc:
         print("ERROR: could not stage NEXA analysis output: %s" % exc)
         return False

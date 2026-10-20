@@ -10,6 +10,7 @@ This file only says WHERE those programs are and WHAT files they produce.
 """
 
 import os
+import subprocess
 import sys
 
 # ---------------------------------------------------------------------------
@@ -42,13 +43,31 @@ REPORT_DIR = os.path.join(DATA_DIR, "reports")
 PYTHON_BIN = sys.executable
 
 
+def _speech_python_ready(executable):
+    """Return whether a candidate can run the complete speech pipeline."""
+    if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "-c", "import numpy, sounddevice, parselmouth"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def modality_python(key, args=()):
     """Keep the Pi-compatible pose runtime separate from the UI runtime."""
+    relative = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
+    if key == "speech":
+        speech_python = os.path.join(NEXA_ROOT, ".venv", *relative)
+        if _speech_python_ready(speech_python):
+            return speech_python
     webcam = any(value == "--camera=webcam" or
                  (value == "--camera" and index + 1 < len(args) and args[index + 1] == "webcam")
                  for index, value in enumerate(args))
     if key == "motor" or (key == "oculomotor" and webcam):
-        relative = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")
         shoulder_python = os.path.join(NEXA_ROOT, ".venv-shoulder", *relative)
         if os.path.isfile(shoulder_python) and os.access(shoulder_python, os.X_OK):
             return shoulder_python

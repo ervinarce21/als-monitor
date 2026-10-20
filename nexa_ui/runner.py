@@ -56,6 +56,7 @@ class AssessmentRunner(QDialog):
         self.speech_paused = False
         self.pause_started_at = None
         self.paused_total = 0.0
+        self.speech_quiet_since = None
 
         self.setWindowTitle(f"NEXA — {modality.name}")
         self.setModal(True)
@@ -202,6 +203,24 @@ class AssessmentRunner(QDialog):
         recording_speech = (self.modality.key == "speech" and
                             bool(self.modality.args) and
                             self.modality.args[0] == "assess")
+        self.audio_level_label = QLabel(
+            "Listening for the participant's voice...")
+        self.audio_level_label.setObjectName("Notice")
+        self.audio_level_label.setWordWrap(True)
+        self.audio_level_label.setVisible(recording_speech)
+        layout.addWidget(self.audio_level_label)
+        self.audio_meter = QProgressBar()
+        self.audio_meter.setRange(0, 1000)
+        self.audio_meter.setValue(0)
+        self.audio_meter.setTextVisible(False)
+        self.audio_meter.setFixedHeight(12)
+        self.audio_meter.setVisible(recording_speech)
+        layout.addWidget(self.audio_meter)
+        self.pause_feedback_label = QLabel(
+            "Live pause feedback starts when low input persists.")
+        self.pause_feedback_label.setObjectName("Notice")
+        self.pause_feedback_label.setVisible(recording_speech)
+        layout.addWidget(self.pause_feedback_label)
         note = QLabel(
             "Pause and resume as needed. Select End recording and analyze "
             "when the participant finishes, or allow the timer to end normally."
@@ -258,6 +277,10 @@ class AssessmentRunner(QDialog):
         self.review_status = QLabel()
         self.review_status.setObjectName("H2")
         layout.addWidget(self.review_status)
+        self.analysis_warning = QLabel()
+        self.analysis_warning.setWordWrap(True)
+        self.analysis_warning.setVisible(False)
+        layout.addWidget(self.analysis_warning)
 
         metrics_card = QFrame()
         metrics_card.setObjectName("Card")
@@ -333,6 +356,14 @@ class AssessmentRunner(QDialog):
         self.speech_paused = False
         self.pause_started_at = None
         self.paused_total = 0.0
+        self.speech_quiet_since = None
+        self.audio_level_label.setText(
+            "Listening for the participant's voice...")
+        self.audio_level_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        self.audio_meter.setValue(0)
+        self.pause_feedback_label.setText(
+            "Live pause feedback starts when low input persists.")
+        self.pause_feedback_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self.pause_speech_btn.setEnabled(True)
         self.pause_speech_btn.setText("Pause recording")
         self.finish_speech_btn.setEnabled(True)
@@ -400,6 +431,9 @@ class AssessmentRunner(QDialog):
             return
         data = bytes(self.process.readAllStandardOutput()).decode("utf-8", errors="replace")
         for line in data.splitlines():
+            if line.startswith("[audio-level]"):
+                self._update_speech_audio_level(line)
+                continue
             self._append_log(line)
             if (self.modality.key == "speech" and
                     line.startswith("Recording saved:")):
@@ -407,6 +441,44 @@ class AssessmentRunner(QDialog):
                 self.finish_speech_btn.setText("Recording complete")
                 self.pause_speech_btn.setEnabled(False)
                 self.running_label.setText("Analyzing speech...")
+                self.audio_level_label.setText("Recording complete")
+                self.pause_feedback_label.setText(
+                    "Final pauses are being calculated with Praat...")
+
+    def _update_speech_audio_level(self, line):
+        parts = line.split()
+        if len(parts) < 3:
+            return
+        try:
+            dbfs = float(parts[1])
+        except ValueError:
+            return
+        meter_value = round(1000 * (dbfs + 60.0) / 50.0)
+        self.audio_meter.setValue(max(0, min(1000, meter_value)))
+        if parts[2] == "quiet":
+            now = time.perf_counter()
+            if self.speech_quiet_since is None:
+                self.speech_quiet_since = now
+            quiet_duration = now - self.speech_quiet_since
+            if quiet_duration >= 0.3:
+                self.pause_feedback_label.setText(
+                    "Possible pause: %.1f s (live level estimate)" %
+                    quiet_duration)
+                self.pause_feedback_label.setStyleSheet(
+                    f"color: {theme.WARN};")
+            if now - self.speech_quiet_since >= 1.5:
+                self.audio_level_label.setText(
+                    "Audio is too quiet. Move closer, speak louder, or check "
+                    "the selected microphone. (%0.1f dBFS)" % dbfs)
+                self.audio_level_label.setStyleSheet(
+                    f"color: {theme.WARN}; font-weight: bold;")
+            return
+        self.speech_quiet_since = None
+        self.pause_feedback_label.setText("Speech level detected")
+        self.pause_feedback_label.setStyleSheet(f"color: {theme.OK};")
+        self.audio_level_label.setText(
+            "Microphone level detected (%0.1f dBFS)" % dbfs)
+        self.audio_level_label.setStyleSheet(f"color: {theme.OK};")
 
     def _append_log(self, text):
         self.log.appendPlainText(text)
@@ -493,6 +565,14 @@ class AssessmentRunner(QDialog):
             self.speech_paused = False
             self.pause_speech_btn.setText("Pause recording")
             self.running_label.setText("Assessment running...")
+            self.speech_quiet_since = None
+            self.audio_level_label.setText(
+                "Listening for the participant's voice...")
+            self.audio_level_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+            self.pause_feedback_label.setText(
+                "Live pause feedback starts when low input persists.")
+            self.pause_feedback_label.setStyleSheet(
+                f"color: {theme.TEXT_DIM};")
             self._append_log("--- speech recording resumed ---")
             return True
         try:
@@ -507,6 +587,11 @@ class AssessmentRunner(QDialog):
         self.pause_started_at = time.perf_counter()
         self.pause_speech_btn.setText("Resume recording")
         self.running_label.setText("Speech recording paused")
+        self.speech_quiet_since = None
+        self.audio_level_label.setText("Microphone monitoring paused")
+        self.audio_level_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        self.pause_feedback_label.setText("Pause feedback paused")
+        self.pause_feedback_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self._append_log("--- speech recording paused ---")
         return True
 
@@ -542,6 +627,18 @@ class AssessmentRunner(QDialog):
                  "failed": "Assessment failed"}
         self.review_status.setText(label.get(self.status, self.status))
         self.review_status.setStyleSheet(f"color: {colour.get(self.status, theme.TEXT)};")
+        self.analysis_warning.setVisible(False)
+        if self.modality.key == "speech":
+            timing = self.metrics.get("analysis_parameters", {}).get(
+                "speech_timing", {})
+            if timing.get("method") != "praat_sound_to_textgrid_silences":
+                error = timing.get("error", timing.get("status", "unknown error"))
+                self.analysis_warning.setText(
+                    "Praat pause analysis was unavailable; pause results use "
+                    "the RMS fallback and are not directly comparable. %s" % error)
+                self.analysis_warning.setStyleSheet(
+                    f"color: {theme.WARN}; font-weight: bold;")
+                self.analysis_warning.setVisible(True)
 
         # Clear and repopulate metrics grid
         while self.metrics_grid.count():
@@ -575,14 +672,26 @@ class AssessmentRunner(QDialog):
                 "filenames match modalities.py."
             )
         self.details_btn.setEnabled(bool(self.metrics))
-        self.analysis_btn.setEnabled(any(
-            os.path.basename(path) == "shoulder_analysis.png" for path in output_paths))
+        analysis_files = {"motor": "shoulder_analysis.png",
+                          "speech": "speech_analysis.png"}
+        analysis_name = analysis_files.get(self.modality.key)
+        self.analysis_btn.setVisible(analysis_name is not None)
+        self.analysis_btn.setEnabled(bool(analysis_name) and any(
+            os.path.basename(path) == analysis_name for path in output_paths))
 
         self.stack.setCurrentIndex(PHASE_REVIEW)
 
     def _show_analysis(self):
+        analysis_files = {"motor": ("shoulder_analysis.png",
+                                    "Shoulder velocity analysis"),
+                          "speech": ("speech_analysis.png",
+                                     "Speech volume and pause analysis")}
+        analysis = analysis_files.get(self.modality.key)
+        if analysis is None:
+            return
+        filename, title = analysis
         path = next((path for path in getattr(self, "_pending_output_paths", [])
-                     if os.path.basename(path) == "shoulder_analysis.png"), None)
+                     if os.path.basename(path) == filename), None)
         if not path:
             return
         pixmap = QPixmap(path)
@@ -590,7 +699,7 @@ class AssessmentRunner(QDialog):
             QMessageBox.warning(self, "Analysis unavailable", "Could not load the velocity plot.")
             return
         dialog = QDialog(self)
-        dialog.setWindowTitle("Shoulder velocity analysis")
+        dialog.setWindowTitle(title)
         layout = QVBoxLayout(dialog)
         plot = QLabel()
         plot.setPixmap(pixmap.scaled(config.SCREEN_WIDTH - 80,
@@ -711,6 +820,7 @@ class AssessmentRunner(QDialog):
         self.speech_paused = False
         self.pause_started_at = None
         self.paused_total = 0.0
+        self.speech_quiet_since = None
 
     # -- cleanup -------------------------------------------------------
 

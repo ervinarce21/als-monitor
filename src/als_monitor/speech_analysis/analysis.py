@@ -30,49 +30,65 @@ def _frames(samples, size):
 
 
 def _speech_timing_rms_fallback(samples, sample_rate):
-    """Legacy energy segmentation used only when Praat is unavailable."""
-    frame_size = max(1, int(sample_rate * config.VAD_FRAME_DURATION_MS / 1000))
-    frames = _frames(samples, frame_size)
-    if not len(frames):
-        return 0.0, 0.0, 0, np.zeros(0, dtype=bool)
-    rms = np.sqrt(np.mean(frames * frames, axis=1) + 1e-12)
-    absolute_floor = 10 ** (config.QC_MIN_RMS_DBFS / 20)
-    noise_based_threshold = float(np.percentile(rms, 20)) * 2.5
-    # In a sustained-vowel recording the 20th percentile is speech, not
-    # background noise. Cap the adaptive threshold below normal signal energy
-    # so an evenly voiced recording is not incorrectly treated as silence.
-    signal_cap = float(np.percentile(rms, 80)) * 0.5
-    threshold = max(absolute_floor, min(noise_based_threshold, signal_cap))
-    voiced = rms >= threshold
-    frame_seconds = frame_size / sample_rate
-    min_speech = max(1, round(config.MIN_SPEECH_SEGMENT_SECONDS / frame_seconds))
-    min_pause = max(1, round(config.PAUSE_THRESHOLD_SECONDS / frame_seconds))
+    """Approximate Praat intensity segmentation when Praat is unavailable."""
+    window_seconds = 3.2 / config.PRAAT_INTENSITY_MIN_PITCH_HZ
+    step_seconds = (config.PRAAT_INTENSITY_TIME_STEP or
+                    0.8 / config.PRAAT_INTENSITY_MIN_PITCH_HZ)
+    window_size = max(1, int(round(sample_rate * window_seconds)))
+    step_size = max(1, int(round(sample_rate * step_seconds)))
+    if len(samples) < window_size:
+        return 0.0, 0.0, 0, 0.0
 
-    # Remove isolated short speech bursts.
+    squared = samples * samples
+    cumulative = np.concatenate(([0.0], np.cumsum(squared)))
+    starts = np.arange(0, len(samples) - window_size + 1, step_size)
+    powers = ((cumulative[starts + window_size] - cumulative[starts]) /
+              window_size)
+    if not len(powers) or float(np.max(powers)) <= 1e-20:
+        return 0.0, 0.0, 0, 0.0
+    intensity_db = 10.0 * np.log10(np.maximum(powers, 1e-24))
+    silence_boundary_db = (float(np.max(intensity_db)) +
+                           config.PRAAT_SILENCE_THRESHOLD_DB)
+    sounding = intensity_db >= silence_boundary_db
+    min_speech = max(1, round(config.MIN_SPEECH_SEGMENT_SECONDS /
+                              step_seconds))
+    min_pause = max(1, round(config.PAUSE_THRESHOLD_SECONDS / step_seconds))
+
+    # Match Praat's order: remove short sounding bursts first, then remove
+    # short silent intervals and join the neighbouring sounding intervals.
     start = 0
-    while start < len(voiced):
+    while start < len(sounding):
         end = start + 1
-        while end < len(voiced) and voiced[end] == voiced[start]:
+        while end < len(sounding) and sounding[end] == sounding[start]:
             end += 1
-        if voiced[start] and end - start < min_speech:
-            voiced[start:end] = False
+        if sounding[start] and end - start < min_speech:
+            sounding[start:end] = False
         start = end
 
-    speech_seconds = float(np.count_nonzero(voiced) * frame_seconds)
-    pause_seconds = 0.0
+    start = 0
+    while start < len(sounding):
+        end = start + 1
+        while end < len(sounding) and sounding[end] == sounding[start]:
+            end += 1
+        if not sounding[start] and end - start < min_pause:
+            sounding[start:end] = True
+        start = end
+
+    indices = np.where(sounding)[0]
+    if not indices.size:
+        return 0.0, 0.0, 0, 0.0
+    region = sounding[indices[0]:indices[-1] + 1]
+    speech_seconds = float(np.count_nonzero(region) * step_seconds)
+    pause_seconds = float(np.count_nonzero(~region) * step_seconds)
     pause_count = 0
-    indices = np.where(voiced)[0]
-    if indices.size:
-        region = voiced[indices[0]:indices[-1] + 1]
-        start = 0
-        while start < len(region):
-            end = start + 1
-            while end < len(region) and region[end] == region[start]:
-                end += 1
-            if not region[start] and end - start >= min_pause:
-                pause_count += 1
-                pause_seconds += (end - start) * frame_seconds
-            start = end
+    start = 0
+    while start < len(region):
+        end = start + 1
+        while end < len(region) and region[end] == region[start]:
+            end += 1
+        if not region[start]:
+            pause_count += 1
+        start = end
     span_seconds = speech_seconds + pause_seconds
     return speech_seconds, pause_seconds, pause_count, span_seconds
 
@@ -81,6 +97,12 @@ def _speech_timing(samples, sample_rate):
     """Segment internal pauses with Praat's intensity-based silence detector."""
     metadata = {
         "method": "praat_sound_to_textgrid_silences",
+        "intensity_minimum_pitch_hz":
+            config.PRAAT_INTENSITY_MIN_PITCH_HZ,
+        "intensity_time_step_sec": config.PRAAT_INTENSITY_TIME_STEP,
+        "intensity_effective_time_step_sec": (
+            config.PRAAT_INTENSITY_TIME_STEP or
+            0.8 / config.PRAAT_INTENSITY_MIN_PITCH_HZ),
         "silence_threshold_db": config.PRAAT_SILENCE_THRESHOLD_DB,
         "minimum_silent_interval_sec": config.PAUSE_THRESHOLD_SECONDS,
         "minimum_sounding_interval_sec": config.MIN_SPEECH_SEGMENT_SECONDS,
@@ -97,6 +119,8 @@ def _speech_timing(samples, sample_rate):
         sound = parselmouth.Sound(samples, sampling_frequency=sample_rate)
         grid = praat.call(
             sound, "To TextGrid (silences)",
+            config.PRAAT_INTENSITY_MIN_PITCH_HZ,
+            config.PRAAT_INTENSITY_TIME_STEP,
             config.PRAAT_SILENCE_THRESHOLD_DB,
             config.PAUSE_THRESHOLD_SECONDS,
             config.MIN_SPEECH_SEGMENT_SECONDS,
@@ -128,6 +152,10 @@ def _speech_timing(samples, sample_rate):
             "analyzed_span_sec": span_seconds,
             "first_sounding_sec": intervals[first][1],
             "last_sounding_sec": intervals[last][2],
+            "pause_intervals_sec": [
+                [float(start), float(end)]
+                for start, end in silent_intervals
+            ],
         })
         return (float(speech_seconds), float(pause_seconds),
                 len(silent_intervals), float(span_seconds), metadata)
@@ -135,10 +163,16 @@ def _speech_timing(samples, sample_rate):
         speech, pauses, count, span = _speech_timing_rms_fallback(
             samples, sample_rate)
         metadata.update({
-            "method": "rms_energy_fallback",
+            "method": "praat_like_rms_fallback",
             "status": "praat_unavailable",
             "error": "%s: %s" % (type(exc).__name__, exc),
-            "fallback_frame_duration_ms": config.VAD_FRAME_DURATION_MS,
+            "fallback_window_sec":
+                3.2 / config.PRAAT_INTENSITY_MIN_PITCH_HZ,
+            "fallback_time_step_sec": (
+                config.PRAAT_INTENSITY_TIME_STEP or
+                0.8 / config.PRAAT_INTENSITY_MIN_PITCH_HZ),
+            "fallback_silence_boundary":
+                "maximum_window_rms_dbfs_plus_silence_threshold_db",
             "fallback_minimum_silent_interval_sec":
                 config.PAUSE_THRESHOLD_SECONDS,
         })
@@ -151,7 +185,17 @@ def _pitch_hnr(samples, sample_rate):
         "pitch_method": "raw_autocorrelation",
         "pitch_floor_hz": config.F0_PITCH_FLOOR_HZ,
         "pitch_ceiling_hz": config.F0_PITCH_CEILING_HZ,
-        "pitch_time_step": config.F0_TIME_STEP,
+        "pitch_time_step_sec": config.F0_TIME_STEP,
+        "pitch_effective_time_step_sec": (
+            config.F0_TIME_STEP or 0.75 / config.F0_PITCH_FLOOR_HZ),
+        "pitch_max_number_of_candidates":
+            config.F0_MAX_NUMBER_OF_CANDIDATES,
+        "pitch_very_accurate": config.F0_VERY_ACCURATE,
+        "pitch_silence_threshold": config.F0_SILENCE_THRESHOLD,
+        "pitch_voicing_threshold": config.F0_VOICING_THRESHOLD,
+        "pitch_octave_cost": config.F0_OCTAVE_COST,
+        "pitch_octave_jump_cost": config.F0_OCTAVE_JUMP_COST,
+        "pitch_voiced_unvoiced_cost": config.F0_VOICED_UNVOICED_COST,
         "hnr_method": "cross_correlation",
         "hnr_time_step": config.HNR_TIME_STEP,
         "hnr_min_pitch_hz": config.HNR_MIN_PITCH_HZ,
@@ -195,6 +239,14 @@ def _pitch_hnr(samples, sample_rate):
                 pitch = sound.to_pitch_ac(
                     time_step=config.F0_TIME_STEP or None,
                     pitch_floor=config.F0_PITCH_FLOOR_HZ,
+                    max_number_of_candidates=
+                        config.F0_MAX_NUMBER_OF_CANDIDATES,
+                    very_accurate=config.F0_VERY_ACCURATE,
+                    silence_threshold=config.F0_SILENCE_THRESHOLD,
+                    voicing_threshold=config.F0_VOICING_THRESHOLD,
+                    octave_cost=config.F0_OCTAVE_COST,
+                    octave_jump_cost=config.F0_OCTAVE_JUMP_COST,
+                    voiced_unvoiced_cost=config.F0_VOICED_UNVOICED_COST,
                     pitch_ceiling=config.F0_PITCH_CEILING_HZ)
                 pitches = pitch.selected_array["frequency"]
             if sound.duration >= ((1.0 + config.HNR_PERIODS_PER_WINDOW) /
@@ -214,12 +266,44 @@ def _pitch_hnr(samples, sample_rate):
     valid_pitch = pitches[np.isfinite(pitches) & (pitches > 0)]
     # Praat's -200 sentinel means undefined; real negative HNR is retained.
     valid_hnr = hnrs[np.isfinite(hnrs) & (hnrs != -200)]
+    pitch_valid_percent = (100.0 * len(valid_pitch) / len(pitches)
+                           if len(pitches) else 0.0)
+    hnr_valid_percent = (100.0 * len(valid_hnr) / len(hnrs)
+                         if len(hnrs) else 0.0)
+    metadata.update({
+        "pitch_total_frames": len(pitches),
+        "pitch_valid_frames": len(valid_pitch),
+        "pitch_valid_frame_percent": pitch_valid_percent,
+        "pitch_min_valid_frame_percent": config.F0_MIN_VALID_FRAME_PERCENT,
+        "hnr_total_frames": len(hnrs),
+        "hnr_valid_frames": len(valid_hnr),
+        "hnr_valid_frame_percent": hnr_valid_percent,
+        "hnr_min_valid_frame_percent": config.HNR_MIN_VALID_FRAME_PERCENT,
+    })
     return (_mean_or_none(valid_pitch), _mean_or_none(valid_hnr), len(valid_pitch),
             len(valid_hnr), metadata)
 
 
 def _mean_or_none(values):
     return float(np.mean(values)) if len(values) else None
+
+
+def _volume_timeline(samples, sample_rate, frame_seconds=0.1):
+    """Return short-window RMS levels for review; this does not drive Praat."""
+    if not len(samples) or sample_rate <= 0:
+        return []
+    frame_size = max(1, int(round(sample_rate * frame_seconds)))
+    timeline = []
+    for start in range(0, len(samples), frame_size):
+        frame = samples[start:start + frame_size]
+        if not len(frame):
+            continue
+        rms = float(np.sqrt(np.mean(frame * frame)))
+        timeline.append({
+            "time_sec": float((start + len(frame) / 2) / sample_rate),
+            "rms_dbfs": float(20.0 * math.log10(max(rms, 1e-12))),
+        })
+    return timeline
 
 
 def analyze_wav(path, task):
@@ -246,8 +330,14 @@ def analyze_wav(path, task):
         flags.append(config.QF_VAD_FAILURE)
     if mean_f0 is None:
         flags.append(config.QF_INVALID_F0)
+    elif (parameters.get("pitch_valid_frame_percent", 0.0) <
+          config.F0_MIN_VALID_FRAME_PERCENT):
+        flags.append(config.QF_INSUFFICIENT_VOICED_FRAMES)
     if hnr is None:
         flags.append(config.QF_INVALID_HNR)
+    elif (parameters.get("hnr_valid_frame_percent", 0.0) <
+          config.HNR_MIN_VALID_FRAME_PERCENT):
+        flags.append(config.QF_INSUFFICIENT_HNR_FRAMES)
     quality = config.QUALITY_VALID if not flags else config.QUALITY_WARNING
 
     return {
@@ -264,6 +354,7 @@ def analyze_wav(path, task):
         "hnr_db": hnr,
         "rms_dbfs": rms_dbfs,
         "clipping_fraction": clipping,
+        "volume_timeline": _volume_timeline(samples, sample_rate),
         "voiced_frames": voiced_frames,
         "hnr_valid_frames": hnr_frames,
         "analysis_parameters": parameters,

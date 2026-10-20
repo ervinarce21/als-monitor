@@ -20,7 +20,7 @@ choices, not diagnostic criteria or universal clinical standards.
 The current measurement-affecting software version is:
 
 ```text
-0.3.0-praat-pauses
+0.3.3-praat-silence-fix
 ```
 
 ## Package Requirement
@@ -64,6 +64,17 @@ Pausing a NEXA recording excludes the paused samples from the WAV. The recorded
 pause duration in `paused_duration_sec` is therefore an operator interruption,
 not a detected within-speech pause.
 
+During a newly recorded assessment, the recorder reports a 0.5-second RMS level
+to the UI. Sustained input below -45 dBFS produces a nonblocking prompt to move
+closer, speak louder, or check the selected microphone. This live level monitor
+does not alter the WAV or Praat analysis and cannot determine physical distance;
+low gain, quiet speech, and the wrong input device can produce the same warning.
+The UI displays this stream as a live volume meter and provisional low-level
+pause indicator. After analysis, `speech_analysis.png` plots 100 ms RMS windows
+across the recording and shades the final pause intervals returned by Praat.
+The live indicator is not a Praat result because Praat's relative threshold
+requires the recording-level maximum and full segmentation operation.
+
 ## Which Measurements Use Praat
 
 Praat is used for:
@@ -99,6 +110,8 @@ Implemented settings:
 
 | Parameter | NEXA setting |
 |---|---:|
+| Intensity minimum pitch | 100 Hz |
+| Intensity time step | automatic (`0.8 / minimum pitch`, effectively 0.008 s) |
 | Silence threshold | -25 dB relative to maximum |
 | Minimum silent interval | 0.300 s |
 | Minimum sounding interval | 0.100 s |
@@ -137,15 +150,20 @@ within-task pause percentage.
 ### Praat-unavailable fallback
 
 If Praat cannot load or its silence command fails, NEXA preserves the WAV and
-uses the older frame-RMS segmentation as a fallback. The run is marked with:
+uses a Praat-like RMS approximation. It uses an effective 32 ms rectangular
+window and 8 ms step at the configured 100 Hz intensity minimum pitch, applies
+the `-25 dB` threshold relative to its maximum window level, removes short
+sounding bursts first, and then merges silent gaps shorter than 300 ms. The run
+is marked with:
 
 ```text
 quality_flags: ["VAD_FAILURE", ...]
-analysis_parameters.speech_timing.method: "rms_energy_fallback"
+analysis_parameters.speech_timing.method: "praat_like_rms_fallback"
 ```
 
 Fallback pause values must not be treated as equivalent to Praat-segmented
-values.
+values. The approximation does not reproduce Praat's 80-8000 Hz filter or its
+Gaussian intensity window exactly.
 
 ## Fundamental Frequency
 
@@ -157,12 +175,21 @@ autocorrelation pitch analysis through `Sound.to_pitch_ac`.
 | Method | Raw autocorrelation |
 | Pitch floor | 75 Hz |
 | Pitch ceiling | 500 Hz |
-| Time step | Praat automatic |
+| Time step | Praat automatic (`0.75 / pitch floor`, effectively 0.01 s) |
+| Maximum candidates | 15 |
+| Very accurate | off |
+| Silence threshold | 0.03 |
+| Voicing threshold | 0.45 |
+| Octave cost | 0.01 |
+| Octave-jump cost | 0.35 |
+| Voiced/unvoiced cost | 0.14 |
 | Segment | Whole recording |
 | Aggregation | Arithmetic mean of valid frequency frames |
 
 Zero, nonfinite, and unvoiced pitch frames are excluded. If no valid frames
 remain, `mean_f0_hz` is `null` and `INVALID_F0` is added to the quality flags.
+If fewer than 30% of the pitch frames are valid, the measured mean is preserved
+and `INSUFFICIENT_VOICED_FRAMES` is added.
 
 The whole recording is analyzed; NEXA does not currently trim to the Praat
 sounding intervals before calculating F0.
@@ -190,6 +217,8 @@ Praat's `-200` undefined sentinel and nonfinite values are excluded. Genuine
 negative HNR values are retained because HNR is a logarithmic ratio and must
 not be converted to an absolute value. If no valid values remain, `hnr_db` is
 `null` and `INVALID_HNR` is added to the quality flags.
+If fewer than 30% of the HNR frames are valid, the measured mean is preserved
+and `INSUFFICIENT_HNR_FRAMES` is added.
 
 The HNR silence threshold is separate from the pause detector's `-25 dB`
 relative intensity threshold. They have different units and purposes.
@@ -209,7 +238,9 @@ The current checks include:
 | Clipping | At least 0.001 of samples near full scale |
 | Insufficient speech | Detected speech below 1.0 s |
 | Invalid F0 | No valid pitch result |
+| Insufficient voiced frames | Fewer than 30% of pitch frames valid |
 | Invalid HNR | No valid harmonicity result |
+| Insufficient HNR frames | Fewer than 30% of HNR frames valid |
 | VAD failure | Praat pause segmentation unavailable |
 
 Any implemented flag changes `quality_status` from `VALID` to `WARNING`.
@@ -238,7 +269,7 @@ The primary output is `speech_summary.json`. Relevant fields include:
   "paused_duration_sec": 0.0,
   "quality_status": "VALID",
   "quality_flags": [],
-  "software_version": "0.3.0-praat-pauses"
+  "software_version": "0.3.3-praat-silence-fix"
 }
 ```
 
@@ -260,7 +291,7 @@ Confirm the following before longitudinal comparison:
 - Same embedded Praat and Parselmouth versions.
 - Same pause, F0, and HNR parameters.
 - Same early-finish and operator-pause policy.
-- No `rms_energy_fallback` runs mixed with Praat pause results.
+- No `praat_like_rms_fallback` runs mixed with Praat pause results.
 
 Pause results produced before `0.3.0-praat-pauses` used a custom RMS classifier,
 a different minimum gap, and a different percentage denominator. Reanalyze the
