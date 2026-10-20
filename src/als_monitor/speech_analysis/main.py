@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -142,22 +143,93 @@ def cmd_record(args):
         config.RECORDINGS_DIR /
         ("%s_%s.wav" % (task, datetime.now().strftime("%Y%m%d_%H%M%S"))))
     output.parent.mkdir(parents=True, exist_ok=True)
+    stop_request_value = os.environ.get("NEXA_STOP_REQUEST")
+    stop_request = Path(stop_request_value) if stop_request_value else None
+    pause_request_value = os.environ.get("NEXA_PAUSE_REQUEST")
+    pause_request = Path(pause_request_value) if pause_request_value else None
     try:
         sample_rate = _recording_sample_rate(sd)
         print("Recording %.1f seconds..." % duration, flush=True)
-        frames = int(duration * sample_rate)
-        audio = sd.rec(frames, samplerate=sample_rate,
-                       channels=config.CHANNELS, dtype="int16",
-                       device=config.MIC_DEVICE_INDEX)
-        sd.wait()
+        chunks = []
+        stream_warnings = []
+        ended_early = False
+        block_frames = max(1, int(sample_rate * 0.05))
+        target_frames = int(duration * sample_rate)
+        captured_frames = 0
+        paused = False
+        pause_started = None
+        paused_duration = 0.0
+        try:
+            with sd.RawInputStream(
+                    samplerate=sample_rate, channels=config.CHANNELS,
+                    dtype="int16", device=config.MIC_DEVICE_INDEX,
+                    blocksize=block_frames) as stream:
+                while captured_frames < target_frames:
+                    if stop_request is not None and stop_request.exists():
+                        ended_early = True
+                        print("Early finish requested; closing recording...",
+                              flush=True)
+                        break
+                    pause_now = (pause_request is not None and
+                                 pause_request.exists())
+                    if pause_now and not paused:
+                        paused = True
+                        pause_started = time.monotonic()
+                        print("Recording paused.", flush=True)
+                    elif not pause_now and paused:
+                        paused = False
+                        paused_duration += time.monotonic() - pause_started
+                        pause_started = None
+                        print("Recording resumed.", flush=True)
+                    audio, overflowed = stream.read(block_frames)
+                    if not paused:
+                        remaining_frames = target_frames - captured_frames
+                        keep_frames = min(block_frames, remaining_frames)
+                        keep_bytes = (keep_frames * config.CHANNELS *
+                                      (config.SAMPLE_WIDTH_BITS // 8))
+                        chunks.append(bytes(audio)[:keep_bytes])
+                        captured_frames += keep_frames
+                    if overflowed and "input overflow" not in stream_warnings:
+                        stream_warnings.append("input overflow")
+        except KeyboardInterrupt:
+            ended_early = True
+            print("Recording ended early from keyboard.", flush=True)
+        if paused and pause_started is not None:
+            paused_duration += time.monotonic() - pause_started
+
+        if not chunks:
+            raise RuntimeError("microphone returned no audio samples")
         with wave.open(str(output), "wb") as wav:
             wav.setnchannels(config.CHANNELS)
             wav.setsampwidth(config.SAMPLE_WIDTH_BITS // 8)
             wav.setframerate(sample_rate)
-            wav.writeframes(audio.astype("<i2").tobytes())
+            wav.writeframes(b"".join(chunks))
+        bytes_per_frame = config.CHANNELS * (config.SAMPLE_WIDTH_BITS // 8)
+        actual_duration = sum(map(len, chunks)) / bytes_per_frame / sample_rate
+        if stream_warnings:
+            print("WARNING: audio stream status: %s" %
+                  "; ".join(stream_warnings), flush=True)
+        if ended_early:
+            print("Recording ended early at %.1f seconds." % actual_duration,
+                  flush=True)
+        args.ended_early = ended_early
+        args.actual_duration = actual_duration
+        args.paused_duration = paused_duration
     except Exception as exc:
-        print("ERROR: recording failed: %s" % exc)
+        print("ERROR: recording failed (%s): %s" %
+              (type(exc).__name__, exc), flush=True)
         return 1
+    finally:
+        if stop_request is not None:
+            try:
+                stop_request.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if pause_request is not None:
+            try:
+                pause_request.unlink(missing_ok=True)
+            except OSError:
+                pass
     print("Recording saved: %s" % output)
     return 0
 
@@ -177,6 +249,16 @@ def cmd_assess(args):
     except (OSError, ValueError, wave.Error) as exc:
         print("ERROR: could not analyze recording: %s" % exc)
         return 1
+    metrics["ended_early"] = bool(getattr(record_args, "ended_early", False))
+    metrics["requested_duration_sec"] = float(args.duration)
+    metrics["paused_duration_sec"] = float(
+        getattr(record_args, "paused_duration", 0.0))
+    acoustic_status = metrics.get("analysis_parameters", {}).get(
+        "engine_status")
+    if acoustic_status != "available":
+        print("WARNING: Praat F0/HNR analysis is %s; the WAV and remaining "
+              "metrics will still be saved." %
+              (acoustic_status or "unavailable"), flush=True)
     if args.task == config.TASK_READING:
         try:
             with open(config.DEFAULT_PASSAGE_METADATA_PATH, "r") as handle:

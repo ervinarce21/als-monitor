@@ -51,6 +51,11 @@ class AssessmentRunner(QDialog):
         self.saved_run_id = None
         self.copied_files = []
         self.run_output_dir = None
+        self.stop_request_path = None
+        self.pause_request_path = None
+        self.speech_paused = False
+        self.pause_started_at = None
+        self.paused_total = 0.0
 
         self.setWindowTitle(f"NEXA — {modality.name}")
         self.setModal(True)
@@ -194,7 +199,13 @@ class AssessmentRunner(QDialog):
         self.progress.setTextVisible(False)
         layout.addWidget(self.progress)
 
+        recording_speech = (self.modality.key == "speech" and
+                            bool(self.modality.args) and
+                            self.modality.args[0] == "assess")
         note = QLabel(
+            "Pause and resume as needed. Select End recording and analyze "
+            "when the participant finishes, or allow the timer to end normally."
+            if recording_speech else
             "The assessment program controls the display while it runs. "
             "Do not interact with this screen unless you need to abort."
         )
@@ -221,10 +232,21 @@ class AssessmentRunner(QDialog):
             self.log.setMaximumHeight(65)
         layout.addWidget(self.log, 1)
 
+        controls = QHBoxLayout()
+        self.pause_speech_btn = QPushButton("Pause recording")
+        self.pause_speech_btn.setVisible(recording_speech)
+        self.pause_speech_btn.clicked.connect(self._toggle_speech_pause)
+        controls.addWidget(self.pause_speech_btn)
+        self.finish_speech_btn = QPushButton("End recording and analyze")
+        self.finish_speech_btn.setObjectName("Primary")
+        self.finish_speech_btn.setVisible(recording_speech)
+        self.finish_speech_btn.clicked.connect(self._finish_speech_early)
+        controls.addWidget(self.finish_speech_btn)
         abort_btn = QPushButton("Abort assessment")
         abort_btn.setObjectName("Danger")
         abort_btn.clicked.connect(self._abort_run)
-        layout.addWidget(abort_btn)
+        controls.addWidget(abort_btn)
+        layout.addLayout(controls)
         return page
 
     def _build_review_page(self):
@@ -304,6 +326,17 @@ class AssessmentRunner(QDialog):
         self.run_output_dir = os.path.join(
             config.RUN_STAGING_DIR, f"{self.modality.key}_{stamp}")
         os.makedirs(self.run_output_dir, exist_ok=True)
+        self.stop_request_path = os.path.join(
+            self.run_output_dir, "stop_recording.request")
+        self.pause_request_path = os.path.join(
+            self.run_output_dir, "pause_recording.request")
+        self.speech_paused = False
+        self.pause_started_at = None
+        self.paused_total = 0.0
+        self.pause_speech_btn.setEnabled(True)
+        self.pause_speech_btn.setText("Pause recording")
+        self.finish_speech_btn.setEnabled(True)
+        self.finish_speech_btn.setText("End recording and analyze")
 
         cmd = self.modality.build_command()
         self._append_log(f"$ {' '.join(cmd)}")
@@ -316,6 +349,8 @@ class AssessmentRunner(QDialog):
             pythonpath += os.pathsep + old_pythonpath
         environment.insert("PYTHONPATH", pythonpath)
         environment.insert("NEXA_OUTPUT_DIR", self.run_output_dir)
+        environment.insert("NEXA_STOP_REQUEST", self.stop_request_path)
+        environment.insert("NEXA_PAUSE_REQUEST", self.pause_request_path)
         environment.insert("NEXA_SESSION_ID", str(self.session_id))
         session = self.db.get_session(self.session_id)
         if session is not None:
@@ -341,12 +376,19 @@ class AssessmentRunner(QDialog):
     def _tick(self):
         if self.start_perf is None:
             return
-        elapsed = time.perf_counter() - self.start_perf
+        now = time.perf_counter()
+        wall_elapsed = now - self.start_perf
+        current_pause = ((now - self.pause_started_at)
+                         if self.speech_paused and self.pause_started_at else 0.0)
+        elapsed = max(0.0, wall_elapsed - self.paused_total - current_pause)
         estimate = max(float(self.modality.est_duration_s), 0.1)
         remaining = max(0, math.ceil(estimate - elapsed))
-        self.elapsed_label.setText(f"{remaining} s" if remaining else "Finishing...")
+        if self.speech_paused:
+            self.elapsed_label.setText(f"Paused | {remaining} s")
+        else:
+            self.elapsed_label.setText(f"{remaining} s" if remaining else "Finishing...")
         self.progress.setValue(min(1000, round(1000 * elapsed / estimate)))
-        if elapsed > config.MODALITY_TIMEOUT_S:
+        if wall_elapsed > config.MODALITY_TIMEOUT_S:
             self._append_log(
                 f"ERROR: exceeded MODALITY_TIMEOUT_S ({config.MODALITY_TIMEOUT_S}s); terminating."
             )
@@ -359,6 +401,12 @@ class AssessmentRunner(QDialog):
         data = bytes(self.process.readAllStandardOutput()).decode("utf-8", errors="replace")
         for line in data.splitlines():
             self._append_log(line)
+            if (self.modality.key == "speech" and
+                    line.startswith("Recording saved:")):
+                self.finish_speech_btn.setEnabled(False)
+                self.finish_speech_btn.setText("Recording complete")
+                self.pause_speech_btn.setEnabled(False)
+                self.running_label.setText("Analyzing speech...")
 
     def _append_log(self, text):
         self.log.appendPlainText(text)
@@ -384,6 +432,83 @@ class AssessmentRunner(QDialog):
         if reply == QMessageBox.Yes:
             self.status = "aborted"
             self._kill_process()
+
+    def _finish_speech_early(self):
+        if (self.modality.key != "speech" or not self.stop_request_path or
+                self.process is None or
+                self.process.state() == QProcess.NotRunning):
+            return
+        was_paused = self.speech_paused
+        if not was_paused and not self._set_speech_paused(True):
+            return
+        reply = QMessageBox.question(
+            self, "End speech recording",
+            "End the recording now and analyze the audio captured so far?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            if not was_paused:
+                self._set_speech_paused(False)
+            return
+        try:
+            with open(self.stop_request_path, "w", encoding="ascii") as handle:
+                handle.write("stop\n")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Could not end recording",
+                "The stop request could not be written:\n%s" % exc)
+            if not was_paused:
+                self._set_speech_paused(False)
+            return
+        self.finish_speech_btn.setEnabled(False)
+        self.finish_speech_btn.setText("Finishing recording...")
+        self.pause_speech_btn.setEnabled(False)
+        self.running_label.setText("Finishing and analyzing speech...")
+        self._append_log("--- early recording finish requested ---")
+
+    def _toggle_speech_pause(self):
+        if (self.modality.key != "speech" or not self.pause_request_path or
+                self.process is None or
+                self.process.state() == QProcess.NotRunning):
+            return
+        self._set_speech_paused(not self.speech_paused)
+
+    def _set_speech_paused(self, paused):
+        """Set the speech recorder pause request and mirror it in the UI."""
+        if paused == self.speech_paused:
+            return True
+        if not paused:
+            try:
+                if os.path.exists(self.pause_request_path):
+                    os.remove(self.pause_request_path)
+            except OSError as exc:
+                QMessageBox.warning(
+                    self, "Could not resume recording",
+                    "The pause request could not be removed:\n%s" % exc)
+                return False
+            now = time.perf_counter()
+            if self.pause_started_at is not None:
+                self.paused_total += now - self.pause_started_at
+            self.pause_started_at = None
+            self.speech_paused = False
+            self.pause_speech_btn.setText("Pause recording")
+            self.running_label.setText("Assessment running...")
+            self._append_log("--- speech recording resumed ---")
+            return True
+        try:
+            with open(self.pause_request_path, "w", encoding="ascii") as handle:
+                handle.write("pause\n")
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Could not pause recording",
+                "The pause request could not be written:\n%s" % exc)
+            return False
+        self.speech_paused = True
+        self.pause_started_at = time.perf_counter()
+        self.pause_speech_btn.setText("Resume recording")
+        self.running_label.setText("Speech recording paused")
+        self._append_log("--- speech recording paused ---")
+        return True
 
     def _kill_process(self):
         if self.process is not None and self.process.state() != QProcess.NotRunning:
@@ -581,6 +706,11 @@ class AssessmentRunner(QDialog):
             except OSError:
                 pass
         self.run_output_dir = None
+        self.stop_request_path = None
+        self.pause_request_path = None
+        self.speech_paused = False
+        self.pause_started_at = None
+        self.paused_total = 0.0
 
     # -- cleanup -------------------------------------------------------
 

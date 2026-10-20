@@ -536,22 +536,25 @@ It calculates recording duration, RMS level in dBFS, clipping fraction, estimate
 speech duration, internal pause duration/count/percentage, mean fundamental
 frequency (F0), Praat HNR, voiced pitch-frame count, and valid HNR-frame count.
 
-Speech timing uses RMS-energy thresholding in 30 ms frames, removes short speech
-bursts, and counts qualifying pauses between the first and last detected speech.
-The active minimum pause setting is 0.150 seconds; speech bursts shorter than
-0.100 seconds are removed. For frame RMS values, the threshold is
-`max(10^(QC_MIN_RMS_DBFS/20), min(2.5*P20(RMS), 0.5*P80(RMS)))`.
-The cap prevents a steady vowel from setting its own threshold above its signal
-level, but this energy gate is still noise-sensitive and is not WebRTC VAD.
-Leading/trailing silence is excluded from pause counts; pause percentage divides
-internal pause time by the whole recording duration. This distinction matters
-when comparing another tool's pause fraction or speaking-time definition.
+Speech timing uses Praat's `Sound: To TextGrid (silences)` intensity-based
+segmentation. The configured silence threshold is -25 dB relative to the
+recording's maximum intensity, the minimum silent interval is 0.300 seconds,
+and the minimum sounding interval is 0.100 seconds. Praat bandpass-filters the
+sound from 80 to 8000 Hz before calculating its intensity contour. Leading and
+trailing silence are excluded. Pause percentage is internal pause time divided
+by the span from first detected sounding onset through last sounding offset.
+If Praat is unavailable, the summary explicitly reports the legacy RMS-energy
+fallback in `analysis_parameters.speech_timing`; fallback results should not be
+compared directly with Praat-segmented results.
 
 Warnings cover short/quiet recordings, clipping, insufficient speech, and missing
 F0/HNR, even on successful runs. F0/HNR now use Praat through the
 `praat-parselmouth` package; timing and RMS/clipping remain project calculations.
 
 ### Praat F0 and HNR Methods
+
+The standalone [`Speech-Analysis-Praat.md`](Speech-Analysis-Praat.md) is the
+maintained implementation reference for Praat pause, F0, and HNR analysis.
 
 The implementation calls `Sound.to_pitch_ac` (raw autocorrelation) and
 `Sound.to_harmonicity_cc` (cross-correlation harmonicity) on the whole
@@ -601,7 +604,7 @@ means no implemented warning fired, not that research validity is established.
 
 ### Versioning and Reference Check
 
-Speech module version `0.2.0-praat` records `analysis_parameters`, Parselmouth
+Speech module version `0.3.0-praat-pauses` records `analysis_parameters`, Parselmouth
 and embedded Praat versions, method names, explicit settings, aggregation, and
 channel/segment policy. Metadata is retained in the speech database and summary
 JSON and exposed through UI metric details. The verified Windows environment

@@ -7,11 +7,24 @@ import numpy as np
 import parselmouth
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from als_monitor.speech_analysis.analysis import _pitch_hnr
+from als_monitor.speech_analysis.analysis import _pitch_hnr, _speech_timing
 from als_monitor.speech_analysis import config
 
 
 class PraatTests(unittest.TestCase):
+    def test_praat_pause_segmentation(self):
+        rate = 48000
+        tone_time = np.arange(rate) / rate
+        tone = 0.3 * np.sin(2 * np.pi * 180 * tone_time)
+        samples = np.concatenate([tone, np.zeros(rate // 2), tone])
+        speech, pauses, count, span, metadata = _speech_timing(samples, rate)
+        self.assertEqual(metadata['method'],
+                         'praat_sound_to_textgrid_silences')
+        self.assertEqual(metadata['status'], 'ok')
+        self.assertEqual(count, 1)
+        self.assertAlmostEqual(pauses, 0.5, delta=0.1)
+        self.assertAlmostEqual(span, speech + pauses, places=6)
+
     def test_reference_agreement(self):
         rate = 48000
         t = np.arange(rate) / rate
@@ -40,8 +53,14 @@ class PraatTests(unittest.TestCase):
 
     def test_dependency_error(self):
         with patch.dict(sys.modules, {'parselmouth': None}):
-            with self.assertRaisesRegex(ValueError, 'pip install praat-parselmouth'):
-                _pitch_hnr(np.zeros(100), 48000)
+            f0, hnr, frames, hnr_frames, metadata = _pitch_hnr(
+                np.zeros(100), 48000)
+            self.assertIsNone(f0)
+            self.assertIsNone(hnr)
+            self.assertEqual(frames, 0)
+            self.assertEqual(hnr_frames, 0)
+            self.assertEqual(metadata['engine_status'], 'unavailable')
+            self.assertIn('praat-parselmouth', metadata['install_hint'])
 
 
 if __name__ == '__main__':

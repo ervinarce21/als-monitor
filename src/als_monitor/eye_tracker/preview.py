@@ -18,7 +18,7 @@ import cv2
 
 from . import config
 from .camera import CameraError, create_camera, configure_camera
-from .face_tracker import create_tracker
+from .face_tracker import create_tracker, webcam_position_guidance
 
 
 def main(argv=None):
@@ -71,6 +71,21 @@ def main(argv=None):
                                                   sample.confidence)
             else:
                 label = "no pupil"
+
+            if config.CAMERA_BACKEND == "webcam":
+                position = getattr(tracker, "position_status", None)
+                guidance, positioned = webcam_position_guidance(position)
+                if position and position.get("face_found"):
+                    height, width = view.shape[:2]
+                    top_left = (int(position["left"] * width),
+                                int(position["top"] * height))
+                    bottom_right = (int(position["right"] * width),
+                                    int(position["bottom"] * height))
+                    cv2.rectangle(view, top_left, bottom_right,
+                                  (0, 255, 0) if positioned else (0, 191, 255), 2)
+                cv2.putText(view, guidance, (8, view.shape[0] - 12),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                            (0, 255, 0) if positioned else (0, 191, 255), 2)
 
             cv2.putText(view, "%s | %.0f fps" % (label, fps), (8, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)

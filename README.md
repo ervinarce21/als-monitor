@@ -305,11 +305,11 @@ nexa eye --camera webcam
 ```
 
 In NEXA UI, select Oculomotor, then Full-face webcam. Keep the full face visible
-The camera-check preview outlines the detected face and gives live framing
-guidance: move closer/farther or move left/right/up/down in the visible frame.
-`Position OK` means the face occupies the configured size and central region.
 and the head still. USB eye and CSI modes use the dark-pupil tracker; full-face
-webcam mode uses the iris model.
+webcam mode uses the iris model. The camera-check preview outlines the detected
+face and gives live framing guidance: move closer/farther or move
+left/right/up/down in the visible frame. `Position OK` means the face occupies
+the configured size and central region.
 Webcam coordinates are image pixels, not calibrated screen gaze. Receive-time
 timestamps include USB/driver delay, and head movement affects measurements.
 Low capture/inference rates may invalidate trials under the existing quality
@@ -392,8 +392,30 @@ PYTHONPATH=src python3 -m als_monitor.shoulder_monitor
 
 ## Speech analysis
 
+For the implemented Praat pause, F0, and HNR methods, parameters, fallbacks,
+output fields, and comparability rules, see
+[`Speech-Analysis-Praat.md`](Speech-Analysis-Praat.md).
+
+During a newly recorded speech assessment, use **Pause recording** and
+**Resume recording** when an interruption should be excluded from the WAV. The
+active-recording timer stops while paused. Select **End recording and analyze**
+to finish before the configured duration. NEXA closes the microphone stream,
+saves the audio captured so far, runs the normal analysis, and opens the review
+screen. The separate **Abort assessment** action still terminates the run
+without requesting analysis. Very short early recordings may be saved with
+quality warnings from the existing speech quality checks.
+
 F0 and HNR now use Praat via `praat-parselmouth` (not the unrelated
 `parselmouth` package). The Raspberry Pi setup above installs it in `.venv`.
+If Praat cannot be loaded, NEXA now preserves the WAV and timing analysis,
+marks F0 and HNR unavailable, and records quality warnings instead of failing
+the entire assessment. Install Praat-Parselmouth to restore those metrics.
+Pause measurements use Praat's intensity-based silence segmentation with a
+`-25 dB` relative threshold, `0.300 s` minimum silent interval, and `0.100 s`
+minimum sounding interval. Leading/trailing silence is excluded from the pause
+percentage. The summary records the method and parameters used.
+Do not compare pause measurements from version `0.3.0-praat-pauses` directly
+with older RMS-segmented results without reanalyzing the original WAV files.
 To install it separately in the Python environment running speech:
 
 ```bash

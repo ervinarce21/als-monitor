@@ -29,7 +29,8 @@ def _frames(samples, size):
     return samples[:count * size].reshape(count, size)
 
 
-def _speech_timing(samples, sample_rate):
+def _speech_timing_rms_fallback(samples, sample_rate):
+    """Legacy energy segmentation used only when Praat is unavailable."""
     frame_size = max(1, int(sample_rate * config.VAD_FRAME_DURATION_MS / 1000))
     frames = _frames(samples, frame_size)
     if not len(frames):
@@ -45,7 +46,7 @@ def _speech_timing(samples, sample_rate):
     voiced = rms >= threshold
     frame_seconds = frame_size / sample_rate
     min_speech = max(1, round(config.MIN_SPEECH_SEGMENT_SECONDS / frame_seconds))
-    min_pause = max(1, round(config.MIN_PAUSE_DURATION_SECONDS / frame_seconds))
+    min_pause = max(1, round(config.PAUSE_THRESHOLD_SECONDS / frame_seconds))
 
     # Remove isolated short speech bursts.
     start = 0
@@ -72,19 +73,81 @@ def _speech_timing(samples, sample_rate):
                 pause_count += 1
                 pause_seconds += (end - start) * frame_seconds
             start = end
-    return speech_seconds, pause_seconds, pause_count, voiced
+    span_seconds = speech_seconds + pause_seconds
+    return speech_seconds, pause_seconds, pause_count, span_seconds
+
+
+def _speech_timing(samples, sample_rate):
+    """Segment internal pauses with Praat's intensity-based silence detector."""
+    metadata = {
+        "method": "praat_sound_to_textgrid_silences",
+        "silence_threshold_db": config.PRAAT_SILENCE_THRESHOLD_DB,
+        "minimum_silent_interval_sec": config.PAUSE_THRESHOLD_SECONDS,
+        "minimum_sounding_interval_sec": config.MIN_SPEECH_SEGMENT_SECONDS,
+        "leading_trailing_silence_excluded": True,
+    }
+    if not len(samples):
+        metadata["status"] = "empty_audio"
+        return 0.0, 0.0, 0, 0.0, metadata
+
+    try:
+        import parselmouth
+        from parselmouth import praat
+
+        sound = parselmouth.Sound(samples, sampling_frequency=sample_rate)
+        grid = praat.call(
+            sound, "To TextGrid (silences)",
+            config.PRAAT_SILENCE_THRESHOLD_DB,
+            config.PAUSE_THRESHOLD_SECONDS,
+            config.MIN_SPEECH_SEGMENT_SECONDS,
+            "silent", "sounding")
+        interval_count = int(praat.call(grid, "Get number of intervals", 1))
+        intervals = []
+        for index in range(1, interval_count + 1):
+            label = str(praat.call(grid, "Get label of interval", 1, index))
+            start = float(praat.call(grid, "Get start time of interval", 1, index))
+            end = float(praat.call(grid, "Get end time of interval", 1, index))
+            intervals.append((label, start, end))
+
+        sounding = [index for index, item in enumerate(intervals)
+                    if item[0] == "sounding"]
+        if not sounding:
+            metadata["status"] = "no_sounding_intervals"
+            return 0.0, 0.0, 0, 0.0, metadata
+
+        first, last = sounding[0], sounding[-1]
+        analyzed = intervals[first:last + 1]
+        speech_seconds = sum(end - start for label, start, end in analyzed
+                             if label == "sounding")
+        silent_intervals = [(start, end) for label, start, end in analyzed
+                            if label == "silent"]
+        pause_seconds = sum(end - start for start, end in silent_intervals)
+        span_seconds = speech_seconds + pause_seconds
+        metadata.update({
+            "status": "ok",
+            "analyzed_span_sec": span_seconds,
+            "first_sounding_sec": intervals[first][1],
+            "last_sounding_sec": intervals[last][2],
+        })
+        return (float(speech_seconds), float(pause_seconds),
+                len(silent_intervals), float(span_seconds), metadata)
+    except Exception as exc:
+        speech, pauses, count, span = _speech_timing_rms_fallback(
+            samples, sample_rate)
+        metadata.update({
+            "method": "rms_energy_fallback",
+            "status": "praat_unavailable",
+            "error": "%s: %s" % (type(exc).__name__, exc),
+            "fallback_frame_duration_ms": config.VAD_FRAME_DURATION_MS,
+            "fallback_minimum_silent_interval_sec":
+                config.PAUSE_THRESHOLD_SECONDS,
+        })
+        return speech, pauses, count, span, metadata
 
 
 def _pitch_hnr(samples, sample_rate):
-    try:
-        import parselmouth
-    except ImportError as exc:
-        raise ValueError("Praat analysis requires praat-parselmouth. Install it with "
-                         "python -m pip install praat-parselmouth in the speech environment.") from exc
     metadata = {
         "engine": "praat-parselmouth",
-        "parselmouth_version": parselmouth.__version__,
-        "praat_version": parselmouth.PRAAT_VERSION,
         "pitch_method": "raw_autocorrelation",
         "pitch_floor_hz": config.F0_PITCH_FLOOR_HZ,
         "pitch_ceiling_hz": config.F0_PITCH_CEILING_HZ,
@@ -98,24 +161,56 @@ def _pitch_hnr(samples, sample_rate):
         "segment": "whole_recording",
         "channels": "averaged_to_mono",
     }
+    try:
+        import parselmouth
+    except (ImportError, OSError) as exc:
+        metadata.update({
+            "engine_status": "unavailable",
+            "error": "%s: %s" % (type(exc).__name__, exc),
+            "install_hint": "python -m pip install praat-parselmouth",
+        })
+        return None, None, 0, 0, metadata
+    try:
+        metadata.update({
+            "engine_status": "available",
+            "parselmouth_version": parselmouth.__version__,
+            "praat_version": parselmouth.PRAAT_VERSION,
+        })
+        sound_type = parselmouth.Sound
+    except AttributeError as exc:
+        metadata.update({
+            "engine_status": "unavailable",
+            "error": "Incorrect parselmouth package: %s" % exc,
+            "install_hint": (
+                "uninstall parselmouth; install praat-parselmouth"),
+        })
+        return None, None, 0, 0, metadata
     pitches = np.array([])
     hnrs = np.array([])
-    if len(samples):
-        sound = parselmouth.Sound(samples, sampling_frequency=sample_rate)
-        # Do not pad short inputs or apply the separate RMS timing mask to Praat.
-        if sound.duration >= 3.0 / config.F0_PITCH_FLOOR_HZ:
-            pitch = sound.to_pitch_ac(
-                time_step=config.F0_TIME_STEP or None,
-                pitch_floor=config.F0_PITCH_FLOOR_HZ,
-                pitch_ceiling=config.F0_PITCH_CEILING_HZ)
-            pitches = pitch.selected_array["frequency"]
-        if sound.duration >= (1.0 + config.HNR_PERIODS_PER_WINDOW) / config.HNR_MIN_PITCH_HZ:
-            harmonicity = sound.to_harmonicity_cc(
-                time_step=config.HNR_TIME_STEP,
-                minimum_pitch=config.HNR_MIN_PITCH_HZ,
-                silence_threshold=config.HNR_SILENCE_THRESHOLD,
-                periods_per_window=config.HNR_PERIODS_PER_WINDOW)
-            hnrs = harmonicity.values.ravel()
+    try:
+        if len(samples):
+            sound = sound_type(samples, sampling_frequency=sample_rate)
+            # Do not pad short inputs or apply the separate RMS timing mask to Praat.
+            if sound.duration >= 3.0 / config.F0_PITCH_FLOOR_HZ:
+                pitch = sound.to_pitch_ac(
+                    time_step=config.F0_TIME_STEP or None,
+                    pitch_floor=config.F0_PITCH_FLOOR_HZ,
+                    pitch_ceiling=config.F0_PITCH_CEILING_HZ)
+                pitches = pitch.selected_array["frequency"]
+            if sound.duration >= ((1.0 + config.HNR_PERIODS_PER_WINDOW) /
+                                  config.HNR_MIN_PITCH_HZ):
+                harmonicity = sound.to_harmonicity_cc(
+                    time_step=config.HNR_TIME_STEP,
+                    minimum_pitch=config.HNR_MIN_PITCH_HZ,
+                    silence_threshold=config.HNR_SILENCE_THRESHOLD,
+                    periods_per_window=config.HNR_PERIODS_PER_WINDOW)
+                hnrs = harmonicity.values.ravel()
+    except Exception as exc:
+        metadata.update({
+            "engine_status": "error",
+            "error": "%s: %s" % (type(exc).__name__, exc),
+        })
+        return None, None, 0, 0, metadata
     valid_pitch = pitches[np.isfinite(pitches) & (pitches > 0)]
     # Praat's -200 sentinel means undefined; real negative HNR is retained.
     valid_hnr = hnrs[np.isfinite(hnrs) & (hnrs != -200)]
@@ -133,8 +228,10 @@ def analyze_wav(path, task):
     rms = float(np.sqrt(np.mean(samples * samples))) if len(samples) else 0.0
     rms_dbfs = 20.0 * math.log10(max(rms, 1e-12))
     clipping = float(np.mean(np.abs(samples) >= 0.999)) if len(samples) else 0.0
-    speech, pauses, pause_count, voiced = _speech_timing(samples, sample_rate)
+    speech, pauses, pause_count, speech_span, timing_parameters = \
+        _speech_timing(samples, sample_rate)
     mean_f0, hnr, voiced_frames, hnr_frames, parameters = _pitch_hnr(samples, sample_rate)
+    parameters["speech_timing"] = timing_parameters
 
     flags = []
     if duration < config.QC_MIN_DURATION_SECONDS:
@@ -145,6 +242,8 @@ def analyze_wav(path, task):
         flags.append(config.QF_CLIPPING_DETECTED)
     if speech < config.QC_MIN_SPEECH_DURATION_SECONDS:
         flags.append(config.QF_INSUFFICIENT_SPEECH)
+    if timing_parameters.get("method") != "praat_sound_to_textgrid_silences":
+        flags.append(config.QF_VAD_FAILURE)
     if mean_f0 is None:
         flags.append(config.QF_INVALID_F0)
     if hnr is None:
@@ -158,7 +257,9 @@ def analyze_wav(path, task):
         "speech_duration_sec": speech,
         "pause_duration_sec": pauses,
         "num_pauses": pause_count,
-        "pause_percentage": (100.0 * pauses / duration) if duration else None,
+        "pause_percentage": (100.0 * pauses / speech_span
+                             if speech_span else None),
+        "pause_percentage_denominator_sec": speech_span,
         "mean_f0_hz": mean_f0,
         "hnr_db": hnr,
         "rms_dbfs": rms_dbfs,

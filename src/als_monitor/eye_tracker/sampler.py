@@ -35,6 +35,7 @@ class EyeSampler:
         self.frames_dropped = 0      # frames where detection failed
         self.latest_frame = None     # for the optional debug preview
         self.latest_sample = None
+        self.latest_position_status = None
         self.video_path = video_path
         self._video_writer = None
         self._video_failed = False
@@ -140,6 +141,9 @@ class EyeSampler:
                 self._samples.append(sample)
                 self.latest_sample = sample
                 self.latest_frame = gray
+                position = getattr(self.tracker, "position_status", None)
+                self.latest_position_status = (dict(position)
+                                               if position is not None else None)
 
     # ------------------------------------------------------------------
     def get_samples(self, t_start, t_end):
@@ -159,6 +163,11 @@ class EyeSampler:
         with self._lock:
             frame = None if self.latest_frame is None else self.latest_frame.copy()
             return frame, self.latest_sample
+
+    def get_position_status(self):
+        with self._lock:
+            return (dict(self.latest_position_status)
+                    if self.latest_position_status is not None else None)
 
     def is_alive(self):
         return self._thread is not None and self._thread.is_alive()

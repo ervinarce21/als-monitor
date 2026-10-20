@@ -259,6 +259,10 @@ class ProsaccadeTest:
 
                 position = (self.sampler.get_position_status()
                             if config.CAMERA_BACKEND == "webcam" else None)
+                guidance = None
+                positioned = False
+                if config.CAMERA_BACKEND == "webcam":
+                    guidance, positioned = webcam_position_guidance(position)
                 if position and position.get("face_found"):
                     face_rect = pygame.Rect(
                         view_rect.left + int(position["left"] * view_w),
@@ -266,7 +270,9 @@ class ProsaccadeTest:
                         max(1, int((position["right"] - position["left"]) * view_w)),
                         max(1, int((position["bottom"] - position["top"]) * view_h)),
                     )
-                    pygame.draw.rect(self.screen, (80, 220, 120), face_rect, 2)
+                    box_colour = ((80, 220, 120) if positioned
+                                  else (240, 190, 80))
+                    pygame.draw.rect(self.screen, box_colour, face_rect, 2)
 
                 found = sample is not None and sample.found and \
                     not math.isnan(sample.x) and not math.isnan(sample.y)
@@ -289,7 +295,6 @@ class ProsaccadeTest:
                     status_colour = (240, 130, 100)
 
                 if config.CAMERA_BACKEND == "webcam":
-                    guidance, positioned = webcam_position_guidance(position)
                     status = guidance
                     status_colour = ((80, 230, 120) if positioned
                                      else (240, 190, 80))

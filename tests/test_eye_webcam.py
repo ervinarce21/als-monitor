@@ -9,11 +9,32 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from als_monitor.eye_tracker import camera, config
-from als_monitor.eye_tracker.face_tracker import FaceTracker, create_tracker
+from als_monitor.eye_tracker.face_tracker import (FaceTracker, create_tracker,
+                                                  webcam_position_guidance)
 from als_monitor.eye_tracker.pupil_tracker import PupilTracker
 
 
 class WebcamTests(unittest.TestCase):
+    def test_position_guidance(self):
+        with patch.object(config, 'WEBCAM_FACE_WIDTH_MIN', 0.3), \
+                patch.object(config, 'WEBCAM_FACE_WIDTH_MAX', 0.55), \
+                patch.object(config, 'WEBCAM_FACE_CENTER_X_TOLERANCE', 0.1), \
+                patch.object(config, 'WEBCAM_FACE_CENTER_Y_TOLERANCE', 0.12):
+            self.assertEqual(webcam_position_guidance(None),
+                             ('Face not detected', False))
+            self.assertEqual(webcam_position_guidance({
+                'face_found': True, 'width': 0.4,
+                'center_x': 0.5, 'center_y': 0.5,
+            }), ('Position OK', True))
+            message, okay = webcam_position_guidance({
+                'face_found': True, 'width': 0.2,
+                'center_x': 0.2, 'center_y': 0.8,
+            })
+            self.assertFalse(okay)
+            self.assertIn('Move closer', message)
+            self.assertIn('Move right in frame', message)
+            self.assertIn('Move up in frame', message)
+
     def test_csi_unchanged(self):
         with patch.object(config, 'CAMERA_BACKEND', 'csi'):
             self.assertIsInstance(camera.create_camera(), camera.IRCamera)

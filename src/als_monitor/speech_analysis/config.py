@@ -64,10 +64,11 @@ DEFAULT_PASSAGE_METADATA_PATH = PASSAGES_DIR / "rainbow_passage_metadata.json"
 # =====================================================================
 # VOICE ACTIVITY DETECTION / SEGMENTATION
 # =====================================================================
-# Research parameter, not a clinical cutoff - validate for your task/population.
-PAUSE_THRESHOLD_SECONDS = 0.300
-MIN_SPEECH_SEGMENT_SECONDS = 0.100
-MIN_PAUSE_DURATION_SECONDS = 0.150
+# Praat Sound: To TextGrid (silences) parameters. These are explicit research
+# settings, not universal clinical cutoffs; validate them for the protocol.
+PRAAT_SILENCE_THRESHOLD_DB = -25.0
+PAUSE_THRESHOLD_SECONDS = 0.300       # minimum silent interval counted as pause
+MIN_SPEECH_SEGMENT_SECONDS = 0.100    # minimum sounding interval retained
 VAD_FRAME_DURATION_MS = 30           # 10/20/30 ms required by WebRTC VAD
 VAD_AGGRESSIVENESS = 2               # WebRTC VAD: 0 (least) - 3 (most aggressive)
 
@@ -117,5 +118,5 @@ QF_WAV_FORMAT_ERROR = "WAV_FORMAT_ERROR"
 # =====================================================================
 # APPLICATION / VERSIONING
 # =====================================================================
-NEXA_SPEECH_MODULE_VERSION = "0.2.0-praat"
+NEXA_SPEECH_MODULE_VERSION = "0.3.0-praat-pauses"
 PARTICIPANT_ID_DEFAULT = "P000"
